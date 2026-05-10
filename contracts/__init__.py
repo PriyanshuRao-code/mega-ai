@@ -1,0 +1,1 @@
+"""contracts package — all Pydantic data contracts for the multi-agent pipeline."""

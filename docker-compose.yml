@@ -1,0 +1,187 @@
+# ============================================================
+# Multi-Agent System — docker-compose.yml
+#
+# SERVICES & PORTS
+# ─────────────────────────────────────────────────────────────
+#  postgres   5432  (internal only; host binding via POSTGRES_PORT)
+#  api        8000  (HTTP — mapped to host via API_HOST_PORT)
+#  worker     —     (no exposed port; talks to postgres + api)
+#  fluentd    24224 (log ingestion — Forward protocol)
+#
+# STARTUP ORDER
+# ─────────────────────────────────────────────────────────────
+#  1. fluentd    (log sink must be ready before anything writes logs)
+#  2. postgres   (database must pass health check)
+#  3. api        (depends on postgres + fluentd; exposes REST)
+#  4. worker     (depends on api + postgres; consumes task queue)
+#
+# VOLUMES
+# ─────────────────────────────────────────────────────────────
+#  postgres_data   — durable DB storage
+#  fluentd_logs    — persisted structured log files
+# ============================================================
+
+version: "3.9"
+
+# ── Reusable fragments ──────────────────────────────────────
+x-common-env: &common-env
+  TZ: ${TZ:-UTC}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  LOG_FORMAT: json
+
+x-logging: &default-logging
+  driver: "fluentd"
+  options:
+    fluentd-address: "localhost:24224"
+    fluentd-async: "true"
+    tag: "{{.Name}}"
+
+# ── Networks ────────────────────────────────────────────────
+networks:
+  backend:
+    driver: bridge
+
+# ── Persistent volumes ──────────────────────────────────────
+volumes:
+  postgres_data:
+    driver: local
+  fluentd_logs:
+    driver: local
+
+services:
+
+  # ── 1. Logging service (Fluentd) ──────────────────────────
+  # Startup order: FIRST — all other services forward logs here.
+  # Port 24224 (TCP/UDP) — Fluentd Forward protocol.
+  fluentd:
+    image: fluent/fluentd:v1.17-debian-1
+    container_name: ${COMPOSE_PROJECT_NAME:-mas}_fluentd
+    restart: unless-stopped
+    environment:
+      <<: *common-env
+    ports:
+      - "${FLUENTD_HOST_PORT:-24224}:24224"
+      - "${FLUENTD_HOST_PORT:-24224}:24224/udp"
+    volumes:
+      - fluentd_logs:/fluentd/log
+      - ./infra/fluentd/fluent.conf:/fluentd/etc/fluent.conf:ro
+    healthcheck:
+      test: ["CMD", "sh", "-c", "echo '' | nc -w1 localhost 24224 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      start_period: 10s
+      retries: 5
+    networks:
+      - backend
+
+  # ── 2. PostgreSQL ──────────────────────────────────────────
+  # Startup order: SECOND — must be healthy before api/worker start.
+  # Port 5432 (internal); host binding optional via POSTGRES_PORT.
+  postgres:
+    image: postgres:16-alpine
+    container_name: ${COMPOSE_PROJECT_NAME:-mas}_postgres
+    restart: unless-stopped
+    environment:
+      <<: *common-env
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "${POSTGRES_HOST_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 5
+    depends_on:
+      fluentd:
+        condition: service_healthy
+    logging: *default-logging
+    networks:
+      - backend
+
+  # ── 3. API Server ──────────────────────────────────────────
+  # Startup order: THIRD — depends on healthy postgres + fluentd.
+  # Port 8000 — FastAPI/Uvicorn HTTP endpoint.
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: api
+    image: ${COMPOSE_PROJECT_NAME:-mas}/api:${IMAGE_TAG:-latest}
+    container_name: ${COMPOSE_PROJECT_NAME:-mas}_api
+    restart: unless-stopped
+    environment:
+      <<: *common-env
+      SERVICE: api
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      API_SECRET_KEY: ${API_SECRET_KEY}
+      API_HOST: 0.0.0.0
+      API_PORT: 8000
+      API_WORKERS: ${API_WORKERS:-2}
+      API_RELOAD: ${API_RELOAD:-false}
+      FLUENTD_HOST: fluentd
+      FLUENTD_PORT: 24224
+    ports:
+      - "${API_HOST_PORT:-8000}:8000"
+    volumes:
+      - ./src:/app/src:ro          # hot-reload friendly (dev only)
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 25s
+      retries: 3
+    depends_on:
+      postgres:
+        condition: service_healthy
+      fluentd:
+        condition: service_healthy
+    logging: *default-logging
+    networks:
+      - backend
+
+  # ── 4. Worker ─────────────────────────────────────────────
+  # Startup order: FOURTH — depends on healthy api + postgres.
+  # No exposed port; communicates over internal backend network.
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: worker
+    image: ${COMPOSE_PROJECT_NAME:-mas}/worker:${IMAGE_TAG:-latest}
+    container_name: ${COMPOSE_PROJECT_NAME:-mas}_worker
+    restart: unless-stopped
+    environment:
+      <<: *common-env
+      SERVICE: worker
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      API_BASE_URL: http://api:8000
+      API_SECRET_KEY: ${API_SECRET_KEY}
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-4}
+      WORKER_QUEUE: ${WORKER_QUEUE:-default}
+      FLUENTD_HOST: fluentd
+      FLUENTD_PORT: 24224
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+    depends_on:
+      api:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      fluentd:
+        condition: service_healthy
+    logging: *default-logging
+    networks:
+      - backend

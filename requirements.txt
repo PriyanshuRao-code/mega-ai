@@ -1,0 +1,29 @@
+# ============================================================
+# requirements.txt — Multi-Agent System
+# Pin versions for reproducible builds.
+# ============================================================
+
+# Web framework
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+
+# Database
+sqlalchemy==2.0.36
+psycopg2-binary==2.9.10
+alembic==1.14.0
+
+# HTTP client (worker → api)
+httpx==0.28.1
+
+# Structured logging
+python-json-logger==3.2.0
+
+# Config / env validation
+pydantic-settings==2.6.1
+
+# Task queue (extend as needed, e.g. celery / arq / rq)
+arq==0.26.1
+
+# Utilities
+tenacity==9.0.0        # retry logic for DB / API calls
+python-dotenv==1.0.1
