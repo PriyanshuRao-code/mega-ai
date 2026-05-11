@@ -62,9 +62,10 @@ from contracts.models import (
     ExecutionEvent,
     ExecutionStatus,
     PolicyViolation,
-    SharedContext,
     ToolResponse,
 )
+from contracts.agent_contracts import DecompositionResult
+from contracts.shared_context import SharedContext
 from interfaces.base_agent import BaseAgent
 from orchestrator.interfaces import IOrchestrator, IRetryManager, IRouter, IScheduler
 from orchestrator.retry_manager import ExponentialRetryManager, RetryPolicy
@@ -164,9 +165,15 @@ class MultiAgentOrchestrator(IOrchestrator):
                 # ── routing ───────────────────────────────────────────────────
                 next_agent_name = await self._router.select_next_agent(context)
                 if next_agent_name is None:
-                    logger.info(
-                        "[%s] Router returned None — stopping orchestration.", run_id
-                    )
+                    if self._scheduler.is_complete(context):
+                        logger.info("[%s] All agents complete. Stopping.", run_id)
+                        break
+                    
+                    # No agents ready but graph not complete -> deadlock
+                    msg = "No agents are ready but graph is not complete — possible deadlock."
+                    logger.error("[%s] %s", run_id, msg)
+                    final_status = ExecutionStatus.FAILED
+                    terminal_error = msg
                     break
 
                 agent = self._agents.get(next_agent_name)
@@ -210,6 +217,7 @@ class MultiAgentOrchestrator(IOrchestrator):
                     "[%s] Executing agent '%s' (iteration %d).",
                     run_id, next_agent_name, iterations,
                 )
+
                 response: ToolResponse = await self._retry_manager.execute_with_retry(
                     agent, context, event_sink
                 )
@@ -306,10 +314,48 @@ class MultiAgentOrchestrator(IOrchestrator):
         event_sink : List[AgentExecutionEvent],
     ) -> None:
         """
-        Called after every agent execution.  No-op by default.
-        Override in subclasses for cross-cutting concerns
-        (e.g. checkpoint saves, telemetry pushes, context summarisation).
+        Called after every agent execution.
+        Handles DecompositionResult to update the dependency graph.
         """
+        if response.success and response.output:
+            # Check if output is a DecompositionResult (or looks like one)
+            output = response.output
+            if hasattr(output, "dependency_edges"):
+                logger.info("[%s] Updating dependency graph from DecompositionResult.", context.run_id)
+                
+                # Convert edges [(from, to)] to adjacency list {agent: [deps]}
+                # Note: agent_contracts.DecompositionResult uses (parent, child) edges?
+                # Actually, our scheduler expects {agent: [dependencies_it_waits_for]}
+                
+                new_graph: Dict[str, List[str]] = {name: [] for name in context.available_agents}
+                
+                # If the agent output has dependency_edges, they are likely [ DependencyEdge, ... ]
+                # Our scheduler uses: child_agent_name -> [parent_agent_names]
+                
+                # First, create a map from task_id to agent_name (via category)
+                task_to_agent: Dict[str, str] = {}
+                for st in getattr(output, "subtasks", []):
+                    # Map category (e.g. 'retrieval') to agent name (e.g. 'RetrievalAgent')
+                    cat = st.category.lower()
+                    for agent_name in context.available_agents:
+                        if cat in agent_name.lower():
+                            task_to_agent[st.task_id] = agent_name
+                            break
+                
+                new_graph: Dict[str, List[str]] = {name: [] for name in context.available_agents}
+                for edge in getattr(output, "dependency_edges", []):
+                    parent_task = getattr(edge, "source_task_id", None)
+                    child_task = getattr(edge, "target_task_id", None)
+                    
+                    parent_agent = task_to_agent.get(parent_task)
+                    child_agent = task_to_agent.get(child_task)
+                    
+                    if parent_agent and child_agent and child_agent in new_graph:
+                        if parent_agent not in new_graph[child_agent]:
+                            new_graph[child_agent].append(parent_agent)
+                
+                context.dependency_graph = new_graph
+                logger.debug("[%s] New graph: %s", context.run_id, new_graph)
 
     # ── private helpers ───────────────────────────────────────────────────────
 
@@ -366,14 +412,18 @@ class MultiAgentOrchestrator(IOrchestrator):
         agent_name: str,
         metadata  : dict,
     ) -> None:
-        sink.append(
-            AgentExecutionEvent(
-                event_type=event_type,
-                agent_name=agent_name,
-                task_id=context.task_id,
-                metadata=metadata,
-            )
+        event = AgentExecutionEvent(
+            event_type=event_type,
+            agent_name=agent_name,
+            task_id=context.task_id,
+            metadata=metadata,
         )
+        sink.append(event)
+        
+        # Stream hook
+        q = context.metadata.get("_stream_queue")
+        if q is not None:
+            q.put_nowait(event)
 
 
 # ──────────────────────────────────────────────────────────────────────────────

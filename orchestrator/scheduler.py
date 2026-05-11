@@ -52,8 +52,8 @@ from contracts.models import (
     AgentExecutionEvent,
     EventType,
     ExecutionStatus,
-    SharedContext,
 )
+from contracts.shared_context import SharedContext
 from orchestrator.interfaces import IScheduler
 
 logger = logging.getLogger("orchestrator.scheduler")
@@ -157,11 +157,19 @@ class DependencyScheduler(IScheduler):
 
         for agent in graph:
             status = context.agent_statuses.get(agent, ExecutionStatus.PENDING)
-            if status != ExecutionStatus.COMPLETED:
+            # We want to know if every agent is finished (COMPLETED, FAILED, TIMEOUT, or SKIPPED)
+            # but NOT RUNNING.
+            is_terminal = (
+                status in self._TERMINAL_STATUSES 
+                and status != ExecutionStatus.RUNNING
+            )
+            if not is_terminal:
                 logger.debug(
                     "Graph not complete — '%s' is %s.", agent, status.value
                 )
                 return False
+
+        return True
 
         logger.info("Dependency graph fully resolved — all agents COMPLETED.")
         return True

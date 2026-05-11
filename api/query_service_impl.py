@@ -3,6 +3,7 @@ import logging
 from datetime import datetime
 from api.services import IQueryService
 from api.models import QueryRequest, QueryResponse
+from api.trace_service_impl import record_execution_result
 from contracts.shared_context import SharedContext
 from orchestrator.orchestrator import MultiAgentOrchestrator
 
@@ -24,11 +25,11 @@ class QueryService(IQueryService):
         # Based on your contracts/shared_context requirements
         context = SharedContext(
             session_id=request.session_id or f"sess_{execution_id[:8]}",
-            query=request.prompt,
+            query=request.query,
             metadata={
                 "execution_id": execution_id,
                 "start_time": datetime.utcnow().isoformat(),
-                "model_preference": getattr(request, "model", "default")
+                "model_preference": getattr(request, "config_overrides", {}).get("model", "default") if getattr(request, "config_overrides", None) else "default"
             }
         )
 
@@ -37,6 +38,9 @@ class QueryService(IQueryService):
         try:
             # 3. Call the Orchestrator
             final_ctx, exec_event = await self.orchestrator.run(context)
+
+            # 4. Record Trace for later retrieval
+            record_execution_result(execution_id, final_ctx, exec_event)
 
             # 4. Map the Orchestrator result to the API QueryResponse
             synthesis_out = final_ctx.agent_outputs.get("SynthesisAgent")
@@ -57,5 +61,60 @@ class QueryService(IQueryService):
             logger.error(f"Execution {execution_id}: Pipeline failed - {str(e)}", exc_info=True)
             # Re-raise so FastAPI's error handlers (api/error_handlers.py) can format the 500
             raise e
-    async def stream(self, request):
-        raise NotImplementedError("Streaming not yet implemented")
+    async def stream(self, request: QueryRequest):
+        import asyncio
+        from api.models import SSEEvent, SSEEventType
+        
+        execution_id = str(uuid.uuid4())
+        q = asyncio.Queue()
+        
+        context = SharedContext(
+            session_id=request.session_id or f"sess_{execution_id[:8]}",
+            query=request.query,
+            metadata={
+                "execution_id": execution_id,
+                "start_time": datetime.utcnow().isoformat(),
+                "model_preference": getattr(request, "config_overrides", {}).get("model", "default") if getattr(request, "config_overrides", None) else "default",
+                "_stream_queue": q
+            }
+        )
+        
+        logger.info(f"Streaming execution {execution_id}: Pipeline started.")
+        task = asyncio.create_task(self.orchestrator.run(context))
+        
+        try:
+            while not task.done():
+                try:
+                    event = await asyncio.wait_for(q.get(), timeout=0.1)
+                    yield SSEEvent(
+                        event=SSEEventType.ACTIVE_AGENT,
+                        run_id=execution_id,
+                        data={
+                            "agent": event.agent_name,
+                            "type": event.event_type.value,
+                            "metadata": event.metadata
+                        }
+                    )
+                except asyncio.TimeoutError:
+                    continue
+            
+            while not q.empty():
+                event = q.get_nowait()
+                yield SSEEvent(
+                    event=SSEEventType.ACTIVE_AGENT,
+                    run_id=execution_id,
+                    data={
+                        "agent": event.agent_name,
+                        "type": event.event_type.value,
+                        "metadata": event.metadata
+                    }
+                )
+                
+            final_ctx, exec_event = await task
+            
+            # Record Trace for later retrieval
+            record_execution_result(execution_id, final_ctx, exec_event)
+            
+        except Exception as e:
+            logger.error(f"Streaming execution {execution_id}: Pipeline failed - {str(e)}", exc_info=True)
+            raise e

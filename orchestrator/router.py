@@ -53,8 +53,9 @@ from contracts.models import (
     AgentExecutionEvent,
     EventType,
     ExecutionStatus,
-    SharedContext,
+    ToolResponse,
 )
+from contracts.shared_context import SharedContext
 from orchestrator.interfaces import IRouter, IScheduler
 
 logger = logging.getLogger("orchestrator.router")
@@ -246,10 +247,9 @@ class DynamicRouter(IRouter):
         if dependents_waiting == 0:
             score += 0.30
 
-        # Naive goal-relevance: check if agent name token appears in goal.
-        goal_tokens = context.goal.lower().split()
-        if any(token in agent_name.lower() for token in goal_tokens):
-            score += 0.20
+        # Boost DecompositionAgent if it hasn't run yet (it defines the graph)
+        if agent_name == "DecompositionAgent" and status == ExecutionStatus.PENDING:
+            score += 0.40
 
         return max(0.0, score)
 

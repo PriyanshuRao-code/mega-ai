@@ -48,9 +48,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from contracts.models import (
     ExecutionStatus,
     PolicyViolation,
-    SharedContext,
     ToolResponse,
 )
+from contracts.shared_context import SharedContext
 from interfaces.base_agent import BaseAgent
 from orchestrator.orchestrator import build_orchestrator
 from orchestrator.retry_manager import RetryPolicy

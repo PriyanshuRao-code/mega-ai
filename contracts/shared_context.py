@@ -249,6 +249,19 @@ class SharedContext(BaseModel):
     policy_violations: List[str] = Field(default_factory=list)
 
     metadata: Dict[str, Any] = Field(default_factory=dict)
+    
+    # ----------------------------------------------------------------------
+    # Orchestration state
+    # ----------------------------------------------------------------------
+    task_id: str = ""
+    goal: str = ""
+    available_agents: List[str] = Field(default_factory=list)
+    agent_statuses: Dict[str, str] = Field(default_factory=dict)
+    dependency_graph: Dict[str, List[str]] = Field(default_factory=dict)
+    completed_agents: List[str] = Field(default_factory=list)
+    token_budget: int = 100_000
+    tokens_used: int = 0
+    policy_flags: List[Any] = Field(default_factory=list)
 
     # ----------------------------------------------------------------------
     # Tokens
@@ -285,6 +298,22 @@ class SharedContext(BaseModel):
             self.query = f"session:{self.session_id}"
 
         # --------------------------------------------------------------
+        # SYNC IDENTIFIERS
+        # --------------------------------------------------------------
+        
+        # task_id <-> run_id
+        if not self.task_id and self.run_id:
+            self.task_id = self.run_id
+        elif self.task_id and not self.run_id:
+            self.run_id = self.task_id
+            
+        # goal <-> query
+        if not self.goal and self.query:
+            self.goal = self.query
+        elif self.goal and not self.query:
+            self.query = self.goal
+
+        # --------------------------------------------------------------
         # VALIDATION
         # --------------------------------------------------------------
 
@@ -293,14 +322,9 @@ class SharedContext(BaseModel):
                 "SharedContext.query must be a string."
             )
 
-        if self.query == "":
+        if not self.query or not self.query.strip():
             raise SharedContextValidationError(
-                "SharedContext.query must not be empty."
-            )
-
-        if not self.query.strip():
-            raise SharedContextValidationError(
-                "SharedContext.query must not be blank."
+                "SharedContext.query must not be empty or blank."
             )
 
         return self
@@ -446,9 +470,36 @@ class SharedContext(BaseModel):
     ) -> Optional[Any]:
         """
         Retrieve raw stored agent output.
+        Automatically unwraps ToolResponse if found.
         """
         with self._lock:
-            return self.agent_outputs.get(agent_name)
+            val = self.agent_outputs.get(agent_name)
+            # If it's a ToolResponse (from the orchestrator), unwrap the raw output
+            if val is not None and hasattr(val, "output") and hasattr(val, "agent_name"):
+                return val.output
+            return val
+
+    def record_agent_output(self, response: Any) -> None:
+        """
+        Orchestrator-compatible method to record an agent's ToolResponse.
+        """
+        # Convert response to something we can store if needed, 
+        # but for now orchestrator expects ToolResponse to be in agent_outputs
+        agent_name = getattr(response, "agent_name", "unknown")
+        with self._lock:
+            self.agent_outputs[agent_name] = response
+            self.tokens_used += getattr(response, "tokens_used", 0)
+            if getattr(response, "success", False):
+                if agent_name not in self.completed_agents:
+                    self.completed_agents.append(agent_name)
+                self.agent_statuses[agent_name] = "COMPLETED"
+            else:
+                self.agent_statuses[agent_name] = "FAILED"
+
+    @property
+    def budget_exhausted(self) -> bool:
+        """Return True if tokens_used has exceeded the limit."""
+        return self.tokens_used >= self.token_budget
     # =========================================================================
     # Summary helper
     # =========================================================================

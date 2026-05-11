@@ -55,9 +55,9 @@ from contracts.models import (
     AgentExecutionEvent,
     EventType,
     ExecutionStatus,
-    SharedContext,
     ToolResponse,
 )
+from contracts.shared_context import SharedContext
 from interfaces.base_agent import BaseAgent
 from orchestrator.interfaces import IRetryManager
 
@@ -285,15 +285,33 @@ class ExponentialRetryManager(IRetryManager):
     ) -> ToolResponse:
         """
         Execute agent.execute() with an optional asyncio timeout.
-
-        Input  : BaseAgent, SharedContext, Optional[float]
-        Output : ToolResponse
-
-        Raises
-        ------
-        asyncio.TimeoutError — if execution exceeds timeout_s.
+        Wraps the result in a ToolResponse if it is not already wrapped.
         """
-        return await asyncio.wait_for( asyncio.to_thread(agent, context), timeout=timeout_s, )
+        # Track initial tokens to calculate delta if agent doesn't return a ToolResponse
+        initial_tokens = context.token_usage.total_tokens
+        
+        # Execute the agent
+        result = await asyncio.wait_for(
+            asyncio.to_thread(agent, context),
+            timeout=timeout_s,
+        )
+
+        # If it's already a ToolResponse-like object (e.g. from a mock agent or reloaded class), return it
+        # Duck typing is safer than isinstance when classes are reloaded (e.g. uvicorn --reload)
+        if result is not None and hasattr(result, "success") and hasattr(result, "agent_name") and hasattr(result, "output"):
+            return result
+
+        # Otherwise, wrap it in a ToolResponse
+        # Use token usage delta if available
+        tokens_delta = context.token_usage.total_tokens - initial_tokens
+        
+        return ToolResponse(
+            agent_name=agent.agent_name,
+            output=result,
+            tokens_used=tokens_delta if tokens_delta > 0 else 0,
+            success=True,
+            metadata={"wrapped": True}
+        )
 
     @staticmethod
     def _emit(

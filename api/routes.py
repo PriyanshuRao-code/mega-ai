@@ -50,6 +50,7 @@ router = APIRouter()
 # Concrete Implementations & Wiring
 # ---------------------------------------------------------------------------
 from api.query_service_impl import QueryService
+from api.trace_service_impl import TraceService
 from orchestrator.orchestrator import build_orchestrator
 from agents.decomposition_agent import DecompositionAgent
 from agents.retrieval_agent import RetrievalAgent
@@ -66,6 +67,8 @@ orchestrator_instance = build_orchestrator(
     ]
 )
 
+trace_service_instance = TraceService()
+
 # 2. Dependency Injection Providers
 def get_query_service() -> IQueryService:
     """Returns the concrete QueryService implementation."""
@@ -73,7 +76,7 @@ def get_query_service() -> IQueryService:
 
 
 def get_trace_service() -> ITraceService:
-    raise NotImplementedError("Wire a concrete ITraceService via dependency injection")
+    return trace_service_instance
 
 
 def get_eval_service() -> IEvalService:
