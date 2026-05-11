@@ -19,9 +19,9 @@ from typing import List, Optional
 from contracts.models import (
     AgentExecutionEvent,
     ExecutionEvent,
-    SharedContext,
     ToolResponse,
 )
+from contracts.shared_context import SharedContext
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Router interface

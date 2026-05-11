@@ -312,7 +312,8 @@ if __name__ == "__main__":
     import sys
     import os
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from contracts.models import ExecutionStatus, SharedContext
+    from contracts.models import ExecutionStatus
+    from contracts.shared_context import SharedContext
 
     logging.basicConfig(
         level=logging.DEBUG,

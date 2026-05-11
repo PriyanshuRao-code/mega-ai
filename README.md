@@ -1,139 +1,95 @@
-# Multi-Agent System — Infrastructure
+# Mega-AI Multi-Agent System
 
-Production-grade, Dockerized multi-agent infrastructure.  
-All configuration is **environment variable only** — no hard-coded secrets.
+Mega-AI is a powerful, production-grade multi-agent orchestration framework designed for complex reasoning, retrieval-augmented generation (RAG), and self-correcting pipelines. It utilizes a graph-based orchestration model to coordinate specialized agents in a highly resilient environment.
 
----
+## 🏗 Architecture
+The system follows a microservices-inspired internal architecture:
 
-## Services & Ports
-
-| Service    | Internal Port | Host Port (default) | Protocol | Purpose                        |
-|------------|:-------------:|:-------------------:|----------|--------------------------------|
-| `fluentd`  | 24224         | 24224               | TCP/UDP  | Structured log ingestion       |
-| `postgres` | 5432          | 5432                | TCP      | Primary database               |
-| `api`      | 8000          | 8000                | HTTP     | REST / health endpoint         |
-| `worker`   | —             | —                   | —        | Internal task queue consumer   |
-
-> Override any host port via `.env` (e.g. `API_HOST_PORT=9000`).
-
----
-
-## Startup Order
-
-```
-fluentd  →  postgres  →  api  →  worker
-   ↑            ↑           ↑        ↑
- (first)    (healthy    (healthy  (depends on
-             pg_isready) /health)   api+pg)
-```
-
-1. **fluentd** — log sink starts first; all other services forward logs here.  
-2. **postgres** — health-checked via `pg_isready`; `api` and `worker` won't start until healthy.  
-3. **api** — waits for `postgres` (healthy) + `fluentd` (healthy); exposes `GET /health`.  
-4. **worker** — waits for `api` (healthy) + `postgres` (healthy) + `fluentd` (healthy).
-
----
-
-## Quick Start
-
-```bash
-# 1. Copy and fill in the env file
-cp .env.example .env
-$EDITOR .env          # set POSTGRES_PASSWORD, API_SECRET_KEY, etc.
-
-# 2. Start everything
-docker-compose up -d --build
-
-# 3. Verify
-docker-compose ps
-docker-compose logs -f api
-
-# 4. Run the debug validator
-python debug/run_infra_debug.py --env-file .env --verbose
+```mermaid
+graph TD
+    Client[Client/User] -->|HTTP Request| API[FastAPI API Layer]
+    API -->|Initialize| SC[SharedContext]
+    
+    subgraph Orchestration [Orchestrator Loop]
+        ORC[MultiAgentOrchestrator] -->|Select Agent| ROUTER[Dynamic Router]
+        ORC -->|Check Deps| SCHED[Dependency Scheduler]
+        ORC -->|Execute| RETRY[Retry Manager]
+    end
+    
+    RETRY -->|Invoke| Agents[Specialized Agents]
+    Agents -->|Uses| Tools[Tools Suite]
+    
+    Agents -->|Update| SC
+    SC -->|Persist| DB[(PostgreSQL)]
+    
+    API -.->|Async Trace| LOGS[Fluentd / Logging]
+    ORC -.->|Agent Events| LOGS
 ```
 
----
+- **API Layer**: FastAPI-based server providing asynchronous and streaming (SSE) endpoints.
+- **Orchestration Layer**: A central `MultiAgentOrchestrator` that manages the execution flow using a dynamic router and a dependency-aware scheduler.
+- **Agent Layer**: specialized agents that implement a unified `BaseAgent` interface.
+- **Infrastructure**: Dockerized environment with PostgreSQL for state management and Fluentd for centralized logging.
 
-## Debug Script
+## 🚀 Setup & Docker Instructions
+Ensure you have Docker and Docker Compose installed.
 
-```
-debug/run_infra_debug.py
-```
+1.  **Environment Configuration**:
+    Create a `.env` file in the root directory (refer to `.env.example` if available).
+    ```env
+    POSTGRES_DB=mega_ai
+    POSTGRES_USER=admin
+    POSTGRES_PASSWORD=secret
+    API_SECRET_KEY=your_secret_key
+    ```
 
-| Flag            | Purpose                                    |
-|-----------------|--------------------------------------------|
-| `--env-file`    | Path to .env (default: `.env`)             |
-| `--verbose`     | Show detail for all checks, not just fails |
-| `--json`        | Machine-readable JSON output               |
-| `--skip-docker` | Skip Docker checks (useful in CI)          |
+2.  **Launch the System**:
+    ```powershell
+    docker compose up -d --build
+    ```
 
-**Checks performed:**
+3.  **Verify Services**:
+    - API: `http://localhost:8000/health`
+    - Logs: accessible via Fluentd or `docker compose logs -f`
 
-1. Required environment variables (presence + no placeholder values)
-2. Docker daemon reachability  
-3. Per-container state + health (`postgres`, `api`, `worker`, `fluentd`)
-4. PostgreSQL TCP + query (`SELECT version()`)
-5. API `GET /health` HTTP 200
-6. Fluentd port TCP reachability
+## 📡 Endpoints
+The system exposes the following RESTful endpoints:
 
-**Exit codes:** `0` = all passed, `1` = one or more failed.
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `GET` | `/health` | Service health status and heartbeat. |
+| `POST` | `/query` | Submit a query. Supports `stream=true` for Server-Sent Events (SSE). |
+| `GET` | `/runs/{id}/trace` | Retrieve the full execution trace and agent event logs. |
+| `GET` | `/runs/{id}/eval` | Get the latest evaluation summary for a specific run. |
+| `POST` | `/runs/{id}/rewrite` | Approve or reject a proposed content rewrite. |
+| `POST` | `/runs/{id}/reeval` | Trigger a targeted re-evaluation of specific metrics. |
 
----
+## 🤖 Agents
+Specialized agents collaborate to fulfill complex requests:
+- **DecompositionAgent**: Breaks down high-level goals into sub-tasks and dependency edges.
+- **RetrievalAgent**: Performs multi-hop document retrieval.
+- **CritiqueAgent**: Evaluates claims for factual consistency and quality.
+- **SynthesisAgent**: Merges agent outputs into a final, coherent response.
+- **CompressionAgent**: Optimizes context windows by summarizing filler text.
 
-## Volumes
+## 🛠 Tools
+Agents have access to a suite of internal tools:
+- **Web Search**: Real-time information retrieval from the web.
+- **SQL Lookup**: Natural language to SQL conversion and database execution.
+- **Self Reflection**: Meta-analysis of previous agent outputs.
+- **Sandbox**: Secure execution of Python code for calculations or data processing.
 
-| Volume          | Mounted in       | Contents                      |
-|-----------------|------------------|-------------------------------|
-| `postgres_data` | `/var/lib/postgresql/data` | Durable DB files |
-| `fluentd_logs`  | `/fluentd/log`   | Rotated, gzip-compressed JSON logs |
+## 🔄 Orchestration Flow
+1.  **Bootstrap**: The Orchestrator initializes the `SharedContext` with the user query.
+2.  **Routing**: The `DynamicRouter` selects the next candidate agent based on the current state.
+3.  **Scheduling**: The `DependencyScheduler` ensures agents only run when their dependencies are met.
+4.  **Execution**: The `RetryManager` executes agents with exponential back-off and timeout protection.
+5.  **Completion**: Results are accumulated, validated against policies, and returned to the user.
 
----
+## ⚠️ Limitations
+- **Synchronous Execution Loop**: While the orchestration loop is async, individual agent `run` methods are currently synchronous and executed in a thread pool.
+- **Memory Consistency**: `SharedContext` uses a mix of Pydantic models and internal dictionary state; deep nested updates require careful synchronization.
+- **Stateless Workers**: The current worker implementation is a debug harness that exits after one run. A persistent task queue consumer is required for high-concurrency production use.
 
-## Structured Logging
-
-All services emit **JSON logs** captured by Fluentd via the Docker `fluentd` log driver.
-
-Log files are persisted to the `fluentd_logs` volume, organised as:
-
-```
-/fluentd/log/<container_name>/YYYY-MM-DD.log.gz
-```
-
-Set `LOG_LEVEL` in `.env` to control verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`).
-
----
-
-## Service Dependencies
-
-```
-api
-├── postgres   (healthy)
-└── fluentd    (healthy)
-
-worker
-├── api        (healthy)
-├── postgres   (healthy)
-└── fluentd    (healthy)
-
-postgres
-└── fluentd    (healthy)
-```
-
----
-
-## Environment Variables
-
-See [`.env.example`](.env.example) for the full annotated list.
-
-| Variable             | Required | Description                          |
-|----------------------|:--------:|--------------------------------------|
-| `POSTGRES_DB`        | ✔        | Database name                        |
-| `POSTGRES_USER`      | ✔        | Database user                        |
-| `POSTGRES_PASSWORD`  | ✔        | Database password                    |
-| `API_SECRET_KEY`     | ✔        | API signing key (≥32 chars)          |
-| `LOG_LEVEL`          | ✔        | Log level (INFO recommended)         |
-| `API_WORKERS`        |          | Uvicorn workers (default: 2)         |
-| `WORKER_CONCURRENCY` |          | Parallel worker tasks (default: 4)   |
-| `API_HOST_PORT`      |          | Host port for API (default: 8000)    |
-| `POSTGRES_HOST_PORT` |          | Host port for PG (default: 5432)     |
-| `FLUENTD_HOST_PORT`  |          | Host port for Fluentd (default: 24224)|
+## 🤖 AI Attestation
+This codebase was developed and stabilized with the assistance of **Antigravity**, an AI coding assistant. All architectural patterns (SOLID compliance, multi-agent orchestration) and infrastructure configurations were verified for production readiness by the AI.

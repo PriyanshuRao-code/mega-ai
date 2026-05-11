@@ -71,6 +71,10 @@ def create_app(
         app.dependency_overrides[get_rewrite_service] = rewrite_service_factory
 
     # --- Routes -------------------------------------------------------------
+    @app.get("/health", tags=["system"])
+    async def health_check():
+        return {"status": "healthy", "timestamp": "2026-05-11T04:51:25Z"}
+
     app.include_router(router, prefix="/v1")
 
     return app

@@ -53,7 +53,7 @@ if __name__ == "__main__":
 import asyncio
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 from contracts.models import (
@@ -128,7 +128,7 @@ class MultiAgentOrchestrator(IOrchestrator):
         ValueError   — if the dependency graph contains a cycle.
         """
         run_id     = context.task_id
-        started_at = datetime.utcnow()
+        started_at = datetime.now(timezone.utc)
         event_sink : List[AgentExecutionEvent] = []
 
         logger.info("Orchestration START — task_id=%s goal='%s'", run_id, context.goal)
@@ -271,7 +271,7 @@ class MultiAgentOrchestrator(IOrchestrator):
             terminal_error = f"Unexpected: {exc}"
             logger.exception("[%s] Unhandled exception in orchestration.", run_id)
 
-        finished_at = datetime.utcnow()
+        finished_at = datetime.now(timezone.utc)
 
         # Merge any events emitted into context.metadata['_event_sink'] by router/scheduler
         extra_events: List[AgentExecutionEvent] = context.metadata.pop("_event_sink", [])
@@ -473,7 +473,8 @@ if __name__ == "__main__":
     import sys
     import os
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from contracts.models import ExecutionStatus, SharedContext, ToolResponse
+    from contracts.models import ExecutionStatus, ToolResponse
+    from contracts.shared_context import SharedContext
     from interfaces.base_agent import BaseAgent
 
     logging.basicConfig(
@@ -485,37 +486,34 @@ if __name__ == "__main__":
 
     class FetcherAgent(BaseAgent):
         @property
-        def name(self)       -> str: return "fetcher"
-        @property
-        def max_tokens(self) -> int: return 1_000
-        async def execute(self, context: SharedContext) -> ToolResponse:
-            await asyncio.sleep(0.01)
-            return ToolResponse(agent_name=self.name, output={"data": [1, 2, 3]},
+        def agent_name(self) -> str: return "fetcher"
+        def run(self, context: SharedContext) -> ToolResponse:
+            import time
+            time.sleep(0.01)
+            return ToolResponse(agent_name=self.agent_name, output={"data": [1, 2, 3]},
                                 tokens_used=150, success=True)
 
     class AnalyserAgent(BaseAgent):
         @property
-        def name(self)       -> str: return "analyser"
-        @property
-        def max_tokens(self) -> int: return 2_000
-        async def execute(self, context: SharedContext) -> ToolResponse:
+        def agent_name(self) -> str: return "analyser"
+        def run(self, context: SharedContext) -> ToolResponse:
+            import time
             fetcher_out = context.agent_outputs.get("fetcher")
             data = fetcher_out.output["data"] if fetcher_out else []
-            await asyncio.sleep(0.01)
-            return ToolResponse(agent_name=self.name,
+            time.sleep(0.01)
+            return ToolResponse(agent_name=self.agent_name,
                                 output={"sum": sum(data), "count": len(data)},
                                 tokens_used=300, success=True)
 
     class ReporterAgent(BaseAgent):
         @property
-        def name(self)       -> str: return "reporter"
-        @property
-        def max_tokens(self) -> int: return 500
-        async def execute(self, context: SharedContext) -> ToolResponse:
+        def agent_name(self) -> str: return "reporter"
+        def run(self, context: SharedContext) -> ToolResponse:
+            import time
             analysis = context.agent_outputs.get("analyser")
             summary  = analysis.output if analysis else {}
-            await asyncio.sleep(0.01)
-            return ToolResponse(agent_name=self.name,
+            time.sleep(0.01)
+            return ToolResponse(agent_name=self.agent_name,
                                 output=f"Report: {summary}",
                                 tokens_used=80, success=True)
 

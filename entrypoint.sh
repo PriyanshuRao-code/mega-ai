@@ -19,7 +19,7 @@ log "Starting service: $SERVICE"
 case "$SERVICE" in
     api)
         log "Launching API server on 0.0.0.0:${API_PORT:-8000}"
-        exec uvicorn src.api.main:app \
+        exec uvicorn api.app:app \
             --host "${API_HOST:-0.0.0.0}" \
             --port "${API_PORT:-8000}" \
             --workers "${API_WORKERS:-2}" \
@@ -28,7 +28,7 @@ case "$SERVICE" in
         ;;
     worker)
         log "Launching worker with concurrency=${WORKER_CONCURRENCY:-4}"
-        exec python -m src.worker.main
+        exec python -m orchestrator.orchestrator
         ;;
     *)
         printf 'ERROR: Unknown SERVICE=%s. Must be api|worker.\n' "$SERVICE" >&2

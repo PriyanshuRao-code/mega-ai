@@ -342,7 +342,8 @@ if __name__ == "__main__":
     import sys
     import os
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from contracts.models import ExecutionStatus, SharedContext, ToolResponse
+    from contracts.models import ExecutionStatus, ToolResponse
+    from contracts.shared_context import SharedContext
     from interfaces.base_agent import BaseAgent
 
     logging.basicConfig(
@@ -354,44 +355,37 @@ if __name__ == "__main__":
 
     class AlwaysSucceedsAgent(BaseAgent):
         @property
-        def name(self) -> str: return "always_ok"
-        @property
-        def max_tokens(self) -> int: return 500
-        async def execute(self, context: SharedContext) -> ToolResponse:
-            return ToolResponse(agent_name=self.name, output="ok",
+        def agent_name(self) -> str: return "always_ok"
+        def run(self, context: SharedContext) -> ToolResponse:
+            return ToolResponse(agent_name=self.agent_name, output="ok",
                                 tokens_used=10, success=True)
 
     class FailsTwiceThenSucceedsAgent(BaseAgent):
         def __init__(self): self._calls = 0
         @property
-        def name(self) -> str: return "flaky_agent"
-        @property
-        def max_tokens(self) -> int: return 500
-        async def execute(self, context: SharedContext) -> ToolResponse:
+        def agent_name(self) -> str: return "flaky_agent"
+        def run(self, context: SharedContext) -> ToolResponse:
             self._calls += 1
             if self._calls < 3:
-                return ToolResponse(agent_name=self.name, output=None,
+                return ToolResponse(agent_name=self.agent_name, output=None,
                                     tokens_used=5, success=False,
                                     error=f"Transient failure #{self._calls}")
-            return ToolResponse(agent_name=self.name, output="recovered",
+            return ToolResponse(agent_name=self.agent_name, output="recovered",
                                 tokens_used=20, success=True)
 
     class AlwaysTimesOutAgent(BaseAgent):
         @property
-        def name(self) -> str: return "timeout_agent"
-        @property
-        def max_tokens(self) -> int: return 500
-        async def execute(self, context: SharedContext) -> ToolResponse:
-            await asyncio.sleep(99)   # will always be killed by timeout
-            return ToolResponse(agent_name=self.name, output=None,
+        def agent_name(self) -> str: return "timeout_agent"
+        def run(self, context: SharedContext) -> ToolResponse:
+            import time
+            time.sleep(10)   # will be killed by timeout in retry manager
+            return ToolResponse(agent_name=self.agent_name, output=None,
                                 tokens_used=0, success=False, error="unreachable")
 
     class NonRetryableAgent(BaseAgent):
         @property
-        def name(self) -> str: return "nr_agent"
-        @property
-        def max_tokens(self) -> int: return 500
-        async def execute(self, context: SharedContext) -> ToolResponse:
+        def agent_name(self) -> str: return "nr_agent"
+        def run(self, context: SharedContext) -> ToolResponse:
             raise ValueError("Policy violation — stop immediately")
 
     async def _debug() -> None:

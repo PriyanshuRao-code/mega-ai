@@ -45,7 +45,8 @@ WORKDIR /app
 COPY --from=builder /install /usr/local
 
 # Application source + config
-COPY src/        ./src/
+COPY . .
+RUN rm -rf .git .env docker-compose.yml Dockerfile  # Basic cleanup in case .dockerignore is missed
 COPY logging.json ./logging.json
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh \

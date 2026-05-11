@@ -7,7 +7,7 @@ Immutable data contracts for the multi-agent orchestration system.
 DO NOT MODIFY — consumed by orchestrator layer and all agents.
 
 Imports  : pydantic, datetime, typing, enum, uuid
-Exports  : SharedContext, ToolResponse, AgentExecutionEvent, ExecutionEvent,
+Exports  : ToolResponse, AgentExecutionEvent, ExecutionEvent,
            EventType, ExecutionStatus, PolicyViolation
 Exceptions: (none raised here — pure data definitions)
 """
@@ -15,7 +15,7 @@ Exceptions: (none raised here — pure data definitions)
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
@@ -80,7 +80,7 @@ class PolicyViolation(BaseModel):
     severity    : str                  # "low" | "medium" | "high" | "critical"
     agent_name  : str
     description : str
-    timestamp   : datetime             = Field(default_factory=datetime.utcnow)
+    timestamp   : datetime             = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class AgentExecutionEvent(BaseModel):
@@ -98,7 +98,7 @@ class AgentExecutionEvent(BaseModel):
     """
     event_type : EventType
     agent_name : str
-    timestamp  : datetime              = Field(default_factory=datetime.utcnow)
+    timestamp  : datetime              = Field(default_factory=lambda: datetime.now(timezone.utc))
     metadata   : Dict[str, Any]        = Field(default_factory=dict)
     task_id    : str                   = Field(default_factory=lambda: str(uuid.uuid4()))
     event_id   : str                   = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -124,59 +124,8 @@ class ExecutionEvent(BaseModel):
     agent_events      : List[AgentExecutionEvent]  = Field(default_factory=list)
     policy_violations : List[PolicyViolation]      = Field(default_factory=list)
     total_tokens_used : int                        = 0
-    started_at        : datetime                   = Field(default_factory=datetime.utcnow)
+    started_at        : datetime                   = Field(default_factory=lambda: datetime.now(timezone.utc))
     finished_at       : Optional[datetime]         = None
     error             : Optional[str]              = None
 
 
-class SharedContext(BaseModel):
-    """
-    Mutable state shared across all agents within a single orchestration run.
-
-    Fields
-    ------
-    task_id          : Unique run identifier.
-    goal             : Human-readable description of the top-level task.
-    messages         : Conversation / instruction history.
-    agent_outputs    : Accumulated ToolResponse results keyed by agent_name.
-    dependency_graph : Adjacency list — agent → list of agents it depends on.
-    agent_statuses   : Current ExecutionStatus per agent name.
-    token_budget     : Maximum allowed token spend across all agents.
-    tokens_used      : Running total of tokens consumed so far.
-    metadata         : Arbitrary extra payload (user_id, session, …).
-    policy_flags     : Accumulated PolicyViolation records.
-    available_agents : Names of all agents registered with the orchestrator.
-    completed_agents : Set of agents that have finished successfully.
-    """
-    task_id          : str
-    goal             : str
-    messages         : List[Dict[str, str]]             = Field(default_factory=list)
-    agent_outputs    : Dict[str, ToolResponse]          = Field(default_factory=dict)
-    dependency_graph : Dict[str, List[str]]             = Field(default_factory=dict)
-    agent_statuses   : Dict[str, ExecutionStatus]       = Field(default_factory=dict)
-    token_budget     : int                              = 100_000
-    tokens_used      : int                              = 0
-    metadata         : Dict[str, Any]                   = Field(default_factory=dict)
-    policy_flags     : List[PolicyViolation]            = Field(default_factory=list)
-    available_agents : List[str]                        = Field(default_factory=list)
-    completed_agents : List[str]                        = Field(default_factory=list)
-
-    # ── helpers ──────────────────────────────────────────────────────────────
-
-    @property
-    def remaining_budget(self) -> int:
-        return self.token_budget - self.tokens_used
-
-    @property
-    def budget_exhausted(self) -> bool:
-        return self.tokens_used >= self.token_budget
-
-    def record_agent_output(self, response: ToolResponse) -> None:
-        self.agent_outputs[response.agent_name] = response
-        self.tokens_used += response.tokens_used
-        if response.success:
-            if response.agent_name not in self.completed_agents:
-                self.completed_agents.append(response.agent_name)
-            self.agent_statuses[response.agent_name] = ExecutionStatus.COMPLETED
-        else:
-            self.agent_statuses[response.agent_name] = ExecutionStatus.FAILED

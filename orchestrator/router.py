@@ -313,7 +313,8 @@ if __name__ == "__main__":
     import os
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     import uuid
-    from contracts.models import ExecutionStatus, SharedContext
+    from contracts.models import ExecutionStatus
+    from contracts.shared_context import SharedContext
     from orchestrator.scheduler import DependencyScheduler
 
     logging.basicConfig(
