@@ -8,11 +8,17 @@ Dependencies: Standard library
 import importlib
 import traceback
 
+import os
+import sys
+
+# Inject repo root into sys.path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 def validate_dependencies():
     results = {"passed": True, "graph": {}, "errors": [], "suggestions": []}
     # Placeholder for actual graph traversal logic specific to your framework
     # Here we mock checking if required core modules exist
-    core_modules = ["app.agents", "app.tools", "app.core", "app.schemas"]
+    core_modules = ["agents", "tools", "contracts", "interfaces", "orchestrator", "api"]
     
     for mod in core_modules:
         try:

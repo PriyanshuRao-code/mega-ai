@@ -8,13 +8,20 @@ Dependencies: fastapi
 import importlib
 import traceback
 
-def validate_routes(app_path="app.main.app"):
+import os
+import sys
+
+# Inject repo root into sys.path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+def validate_routes(app_path="api.app.create_app"):
     results = {"passed": True, "routes": [], "warnings": [], "errors": []}
     
     try:
         module_name, app_name = app_path.rsplit(".", 1)
         module = importlib.import_module(module_name)
-        app = getattr(module, app_name)
+        app_obj = getattr(module, app_name)
+        app = app_obj() if callable(app_obj) else app_obj
         
         from fastapi import routing
         for route in app.routes:
