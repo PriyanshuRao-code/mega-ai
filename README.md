@@ -53,16 +53,35 @@ Ensure you have Docker and Docker Compose installed.
     - Logs: accessible via Fluentd or `docker compose logs -f`
 
 ## 🧠 LLM Provider Support
-The system dynamically supports multiple LLM providers based on your `OPENAI_API_KEY` prefix:
+The system dynamically supports multiple LLM providers based on your `OPENAI_API_KEY` prefix.
 
 | Provider | Key Type | Auto-Detected Endpoint |
 | :--- | :--- | :--- |
-| **OpenAI** | `sk-...` | Standard OpenAI API |
+| **OpenAI** | `sk-...` | Standard OpenAI API (`api.openai.com`) |
 | **GitHub Models** | `github_pat_...` | GitHub AI Inference (`models.inference.ai.azure.com`) |
 
-### Configuration (`.env`)
-- **`OPENAI_API_KEY`**: Your secret key or GitHub Personal Access Token.
-- **`LLM_MODEL`**: The model name to use (e.g., `gpt-4o`, `gpt-5`, `meta-llama-3.1-405b-instruct`). Default is `gpt-4o`.
+### 🔑 How to obtain keys:
+-   **OpenAI**: Generate an API key from the [OpenAI Dashboard](https://platform.openai.com/api-keys).
+-   **GitHub Models**: Generate a **Personal Access Token (classic)** from [GitHub Settings > Developer Settings](https://github.com/settings/tokens).
+    -   *Required Scopes*: No specific scopes are needed for the Inference API, just a valid token.
+    -   *Waitlist*: Ensure your account has access to the [GitHub Marketplace Models](https://github.com/marketplace/models).
+
+### ⚙️ Environment Configuration (`.env`)
+Create a `.env` file in the root directory (see `.env.example` for a template):
+
+```env
+# REQUIRED: Your API key or GitHub PAT
+OPENAI_API_KEY=github_pat_12345...
+
+# OPTIONAL: Model selection
+# For GitHub: use 'gpt-4o', 'gpt-4o-mini', 'meta-llama-3.1-405b-instruct', etc.
+# For OpenAI: use 'gpt-4o', 'gpt-4-turbo', etc.
+LLM_MODEL=gpt-4o
+```
+
+### 🚀 Usage Modes
+-   **Local Development**: The system uses `python-dotenv` to automatically load your `.env` file when running standalone scripts or `uvicorn`.
+-   **Docker Production**: Docker Compose automatically injects your `.env` variables into the containers. No manual `export` is required.
 
 ## 📸 Visual Overview
 
