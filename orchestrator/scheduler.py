@@ -48,7 +48,7 @@ import logging
 from collections import deque
 from typing import Dict, List, Optional, Set
 
-from contracts.orchestrator import (
+from contracts.models import (
     AgentExecutionEvent,
     EventType,
     ExecutionStatus,
