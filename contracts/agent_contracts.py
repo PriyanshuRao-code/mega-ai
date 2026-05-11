@@ -2,7 +2,7 @@
 """
 contracts/agent_contracts.py
 =============================
-Strongly-typed output contracts (result dataclasses) for every agent in the
+Strongly-typed output contracts (result pydantic models) for every agent in the
 multi-agent pipeline.  These are the ONLY permitted return types from agent
 run() implementations.
 
@@ -14,7 +14,7 @@ SOLID Alignment:
   - (D) Agents depend on these abstractions, not on each other
 
 Imports:
-  - dataclasses  (stdlib)
+  - pydantic models  (stdlib)
   - typing       (stdlib)
   - enum         (stdlib)
 
@@ -25,7 +25,7 @@ Exceptions:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from pydantic import BaseModel, Field, model_validator
 from enum import Enum, auto
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -60,8 +60,7 @@ class TaskStatus(Enum):
 # DecompositionResult
 # ---------------------------------------------------------------------------
 
-@dataclass
-class SubTask:
+class SubTask(BaseModel):
     """
     A single decomposed unit of work.
 
@@ -76,21 +75,19 @@ class SubTask:
     task_id: str
     description: str
     status: TaskStatus = TaskStatus.PENDING
-    dependencies: List[str] = field(default_factory=list)
+    dependencies: List[str] = Field(default_factory=list)
     category: str = "general"
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
-@dataclass
-class DependencyEdge:
+class DependencyEdge(BaseModel):
     """Directed edge in the dependency graph."""
     source_task_id: str
     target_task_id: str
     edge_type: str = "depends_on"  # e.g. 'depends_on', 'blocks', 'informs'
 
 
-@dataclass
-class DecompositionResult:
+class DecompositionResult(BaseModel):
     """
     Output contract for DecompositionAgent.
 
@@ -104,21 +101,22 @@ class DecompositionResult:
         ContractValidationError: if subtasks is empty
     """
     subtasks: List[SubTask]
-    dependency_edges: List[DependencyEdge] = field(default_factory=list)
-    execution_order: List[str] = field(default_factory=list)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    dependency_edges: List[DependencyEdge] = Field(default_factory=list)
+    execution_order: List[str] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
-    def __post_init__(self) -> None:
+    @model_validator(mode='after')
+    def validate_model(self):
         if not self.subtasks:
             raise ContractValidationError("DecompositionResult.subtasks must not be empty")
 
 
+        return self
 # ---------------------------------------------------------------------------
 # RetrievalResult
 # ---------------------------------------------------------------------------
 
-@dataclass
-class RetrievedChunk:
+class RetrievedChunk(BaseModel):
     """
     A single retrieved passage with provenance metadata.
 
@@ -138,10 +136,11 @@ class RetrievedChunk:
     content: str
     score: float = 0.0
     hop: int = 0
-    citations: List[Tuple[str, str]] = field(default_factory=list)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    citations: List[Tuple[str, str]] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
-    def __post_init__(self) -> None:
+    @model_validator(mode='after')
+    def validate_model(self):
         if not (0.0 <= self.score <= 1.0):
             raise ContractValidationError(
                 f"RetrievedChunk.score must be in [0, 1]; got {self.score}"
@@ -152,8 +151,8 @@ class RetrievedChunk:
             )
 
 
-@dataclass
-class ProvenanceMap:
+        return self
+class ProvenanceMap(BaseModel):
     """
     Maps a claim / passage back to its source chain.
 
@@ -169,8 +168,7 @@ class ProvenanceMap:
     hops: int = 0
 
 
-@dataclass
-class RetrievalResult:
+class RetrievalResult(BaseModel):
     """
     Output contract for RetrievalAgent.
 
@@ -184,21 +182,22 @@ class RetrievalResult:
         ContractValidationError: if chunks is empty
     """
     chunks: List[RetrievedChunk]
-    provenance_map: List[ProvenanceMap] = field(default_factory=list)
+    provenance_map: List[ProvenanceMap] = Field(default_factory=list)
     total_hops: int = 0
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
-    def __post_init__(self) -> None:
+    @model_validator(mode='after')
+    def validate_model(self):
         if not self.chunks:
             raise ContractValidationError("RetrievalResult.chunks must not be empty")
 
 
+        return self
 # ---------------------------------------------------------------------------
 # CritiqueResult
 # ---------------------------------------------------------------------------
 
-@dataclass
-class ClaimScore:
+class ClaimScore(BaseModel):
     """
     Confidence score for a single extracted claim.
 
@@ -215,17 +214,18 @@ class ClaimScore:
     confidence: ConfidenceLevel
     score: float
     rationale: str = ""
-    sources: List[str] = field(default_factory=list)
+    sources: List[str] = Field(default_factory=list)
 
-    def __post_init__(self) -> None:
+    @model_validator(mode='after')
+    def validate_model(self):
         if not (0.0 <= self.score <= 1.0):
             raise ContractValidationError(
                 f"ClaimScore.score must be in [0, 1]; got {self.score}"
             )
 
 
-@dataclass
-class Contradiction:
+        return self
+class Contradiction(BaseModel):
     """
     A detected contradiction between two claims.
 
@@ -244,15 +244,16 @@ class Contradiction:
     severity: str = "medium"
     resolution_hint: str = ""
 
-    def __post_init__(self) -> None:
+    @model_validator(mode='after')
+    def validate_model(self):
         if self.severity not in {"high", "medium", "low"}:
             raise ContractValidationError(
                 f"Contradiction.severity must be 'high', 'medium', or 'low'; got '{self.severity}'"
             )
 
 
-@dataclass
-class CritiqueResult:
+        return self
+class CritiqueResult(BaseModel):
     """
     Output contract for CritiqueAgent.
 
@@ -266,11 +267,12 @@ class CritiqueResult:
         ContractValidationError: if claim_scores is empty
     """
     claim_scores: List[ClaimScore]
-    contradictions: List[Contradiction] = field(default_factory=list)
+    contradictions: List[Contradiction] = Field(default_factory=list)
     overall_quality: float = 0.0
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
-    def __post_init__(self) -> None:
+    @model_validator(mode='after')
+    def validate_model(self):
         if not self.claim_scores:
             raise ContractValidationError("CritiqueResult.claim_scores must not be empty")
         if not (0.0 <= self.overall_quality <= 1.0):
@@ -279,12 +281,12 @@ class CritiqueResult:
             )
 
 
+        return self
 # ---------------------------------------------------------------------------
 # SynthesisResult
 # ---------------------------------------------------------------------------
 
-@dataclass
-class ResolvedContradiction:
+class ResolvedContradiction(BaseModel):
     """
     Records how a detected contradiction was resolved.
 
@@ -300,8 +302,7 @@ class ResolvedContradiction:
     winning_claim_id: Optional[str] = None
 
 
-@dataclass
-class SynthesisResult:
+class SynthesisResult(BaseModel):
     """
     Output contract for SynthesisAgent.
 
@@ -316,12 +317,13 @@ class SynthesisResult:
         ContractValidationError: if merged_output is empty
     """
     merged_output: str
-    resolved_contradictions: List[ResolvedContradiction] = field(default_factory=list)
-    contributing_sources: List[str] = field(default_factory=list)
+    resolved_contradictions: List[ResolvedContradiction] = Field(default_factory=list)
+    contributing_sources: List[str] = Field(default_factory=list)
     confidence: float = 0.0
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
-    def __post_init__(self) -> None:
+    @model_validator(mode='after')
+    def validate_model(self):
         if not self.merged_output.strip():
             raise ContractValidationError("SynthesisResult.merged_output must not be empty")
         if not (0.0 <= self.confidence <= 1.0):
@@ -330,12 +332,12 @@ class SynthesisResult:
             )
 
 
+        return self
 # ---------------------------------------------------------------------------
 # CompressionResult
 # ---------------------------------------------------------------------------
 
-@dataclass
-class StructuredBlock:
+class StructuredBlock(BaseModel):
     """
     A losslessly preserved structured block.
 
@@ -351,8 +353,7 @@ class StructuredBlock:
     position_hint: int = 0
 
 
-@dataclass
-class CompressionResult:
+class CompressionResult(BaseModel):
     """
     Output contract for CompressionAgent.
 
@@ -368,15 +369,17 @@ class CompressionResult:
                                  or compression_ratio is non-positive
     """
     compressed_text: str
-    structured_blocks: List[StructuredBlock] = field(default_factory=list)
+    structured_blocks: List[StructuredBlock] = Field(default_factory=list)
     compression_ratio: float = 1.0
     tokens_saved: int = 0
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
-    def __post_init__(self) -> None:
+    @model_validator(mode='after')
+    def validate_model(self):
         if not self.compressed_text.strip():
             raise ContractValidationError("CompressionResult.compressed_text must not be empty")
         if self.compression_ratio <= 0.0:
             raise ContractValidationError(
                 f"CompressionResult.compression_ratio must be > 0; got {self.compression_ratio}"
             )
+        return self

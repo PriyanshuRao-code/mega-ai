@@ -34,13 +34,16 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
+if sys.stdout.encoding.lower() != 'utf-8':
+    sys.stdout.reconfigure(encoding='utf-8')
 import textwrap
 import uuid
 from datetime import datetime
 from typing import List, Optional
 
 # ── path setup (run from repo root or debug/) ─────────────────────────────────
-sys.path.insert(0, __file__.rsplit("/debug", 1)[0])   # repo root
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from contracts.models import (
     ExecutionStatus,
@@ -95,7 +98,7 @@ class SimpleAgent(BaseAgent):
         self._payload  = output_payload or f"{agent_name}::done"
 
     @property
-    def name(self) -> str:        return self._name
+    def agent_name(self) -> str:        return self._name
     @property
     def max_tokens(self) -> int:  return 2_000
 
@@ -103,14 +106,14 @@ class SimpleAgent(BaseAgent):
         self._calls += 1
         if self._calls <= self._fails:
             return ToolResponse(
-                agent_name=self.name,
+                agent_name=self.agent_name,
                 output=None,
                 tokens_used=10,
                 success=False,
                 error=f"Simulated failure #{self._calls}",
             )
         return ToolResponse(
-            agent_name=self.name,
+            agent_name=self.agent_name,
             output=self._payload,
             tokens_used=self._cost,
             success=True,
@@ -326,12 +329,12 @@ async def scenario_policy_violation() -> bool:
 
     class ReporterAgent(BaseAgent):
         @property
-        def name(self) -> str: return "reporter"
+        def agent_name(self) -> str: return "reporter"
         @property
         def max_tokens(self) -> int: return 500
         def run(self, context: SharedContext) -> ToolResponse:
             return ToolResponse(
-                agent_name=self.name,
+                agent_name=self.agent_name,
                 output="RESTRICTED: classified content detected",
                 tokens_used=50,
                 success=True,

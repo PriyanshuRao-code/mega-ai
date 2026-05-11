@@ -25,6 +25,9 @@ from __future__ import annotations
 import json
 import logging
 import sys
+if sys.stdout.encoding.lower() != 'utf-8':
+    sys.stdout.reconfigure(encoding='utf-8')
+from pydantic import ValidationError
 import time
 import traceback
 from dataclasses import asdict
@@ -470,49 +473,49 @@ def test_schema_validation() -> None:
 
     def test_empty_query():
         SharedContext(query="")
-    _run_test("SharedContext rejects empty query", test_empty_query, SharedContextValidationError)
+    _run_test("SharedContext rejects empty query", test_empty_query, ValidationError)
 
     def test_invalid_message_role():
         from contracts.shared_context import Message
         Message(role="robot", content="hi")
-    _run_test("Message rejects invalid role", test_invalid_message_role, SharedContextValidationError)
+    _run_test("Message rejects invalid role", test_invalid_message_role, ValidationError)
 
     def test_decomp_empty_subtasks():
         DecompositionResult(subtasks=[])
-    _run_test("DecompositionResult rejects empty subtasks", test_decomp_empty_subtasks, ContractValidationError)
+    _run_test("DecompositionResult rejects empty subtasks", test_decomp_empty_subtasks, ValidationError)
 
     def test_chunk_bad_score():
         RetrievedChunk(chunk_id="c1", doc_id="d1", source="s", content="x", score=1.5)
-    _run_test("RetrievedChunk rejects score > 1", test_chunk_bad_score, ContractValidationError)
+    _run_test("RetrievedChunk rejects score > 1", test_chunk_bad_score, ValidationError)
 
     def test_retrieval_empty_chunks():
         RetrievalResult(chunks=[])
-    _run_test("RetrievalResult rejects empty chunks", test_retrieval_empty_chunks, ContractValidationError)
+    _run_test("RetrievalResult rejects empty chunks", test_retrieval_empty_chunks, ValidationError)
 
     def test_claim_bad_score():
         ClaimScore(claim_id="c", claim_text="x", confidence=ConfidenceLevel.HIGH, score=-0.1)
-    _run_test("ClaimScore rejects negative score", test_claim_bad_score, ContractValidationError)
+    _run_test("ClaimScore rejects negative score", test_claim_bad_score, ValidationError)
 
     def test_critique_empty_claims():
         CritiqueResult(claim_scores=[], overall_quality=0.5)
-    _run_test("CritiqueResult rejects empty claim_scores", test_critique_empty_claims, ContractValidationError)
+    _run_test("CritiqueResult rejects empty claim_scores", test_critique_empty_claims, ValidationError)
 
     def test_critique_bad_quality():
         cs = ClaimScore(claim_id="x", claim_text="y", confidence=ConfidenceLevel.LOW, score=0.5)
         CritiqueResult(claim_scores=[cs], overall_quality=1.5)
-    _run_test("CritiqueResult rejects quality > 1", test_critique_bad_quality, ContractValidationError)
+    _run_test("CritiqueResult rejects quality > 1", test_critique_bad_quality, ValidationError)
 
     def test_synthesis_empty_output():
         SynthesisResult(merged_output="   ", confidence=0.5)
-    _run_test("SynthesisResult rejects whitespace-only output", test_synthesis_empty_output, ContractValidationError)
+    _run_test("SynthesisResult rejects whitespace-only output", test_synthesis_empty_output, ValidationError)
 
     def test_compression_empty_text():
         CompressionResult(compressed_text="", compression_ratio=0.5)
-    _run_test("CompressionResult rejects empty text", test_compression_empty_text, ContractValidationError)
+    _run_test("CompressionResult rejects empty text", test_compression_empty_text, ValidationError)
 
     def test_compression_zero_ratio():
         CompressionResult(compressed_text="ok", compression_ratio=0.0)
-    _run_test("CompressionResult rejects zero ratio", test_compression_zero_ratio, ContractValidationError)
+    _run_test("CompressionResult rejects zero ratio", test_compression_zero_ratio, ValidationError)
 
     def test_contradiction_bad_severity():
         from contracts.agent_contracts import Contradiction
@@ -520,7 +523,7 @@ def test_schema_validation() -> None:
             contradiction_id="x", claim_a_id="a", claim_b_id="b",
             description="test", severity="extreme"
         )
-    _run_test("Contradiction rejects invalid severity", test_contradiction_bad_severity, ContractValidationError)
+    _run_test("Contradiction rejects invalid severity", test_contradiction_bad_severity, ValidationError)
 
 
 # ===========================================================================

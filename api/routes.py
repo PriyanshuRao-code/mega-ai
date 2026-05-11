@@ -47,24 +47,40 @@ router = APIRouter()
 
 
 # ---------------------------------------------------------------------------
-# Dependency stubs
-# Concrete implementations are wired at application startup via app.dependency_overrides
-# or a DI container.  These stubs make the contract explicit and keep routes testable.
+# Concrete Implementations & Wiring
 # ---------------------------------------------------------------------------
+from api.query_service_impl import QueryService
+from orchestrator.orchestrator import build_orchestrator
+from agents.decomposition_agent import DecompositionAgent
+from agents.retrieval_agent import RetrievalAgent
+from agents.critique_agent import CritiqueAgent
+from agents.synthesis_agent import SynthesisAgent
 
-def get_query_service() -> IQueryService:  # pragma: no cover
-    raise NotImplementedError("Wire a concrete IQueryService via dependency injection")
+# 1. Initialize the Orchestrator (Long-lived Singleton)
+orchestrator_instance = build_orchestrator(
+    agents=[
+        DecompositionAgent(),
+        RetrievalAgent(),
+        CritiqueAgent(),
+        SynthesisAgent()
+    ]
+)
+
+# 2. Dependency Injection Providers
+def get_query_service() -> IQueryService:
+    """Returns the concrete QueryService implementation."""
+    return QueryService(orchestrator=orchestrator_instance)
 
 
-def get_trace_service() -> ITraceService:  # pragma: no cover
+def get_trace_service() -> ITraceService:
     raise NotImplementedError("Wire a concrete ITraceService via dependency injection")
 
 
-def get_eval_service() -> IEvalService:  # pragma: no cover
+def get_eval_service() -> IEvalService:
     raise NotImplementedError("Wire a concrete IEvalService via dependency injection")
 
 
-def get_rewrite_service() -> IRewriteService:  # pragma: no cover
+def get_rewrite_service() -> IRewriteService:
     raise NotImplementedError("Wire a concrete IRewriteService via dependency injection")
 
 

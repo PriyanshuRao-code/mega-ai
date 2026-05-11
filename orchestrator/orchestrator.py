@@ -103,7 +103,7 @@ class MultiAgentOrchestrator(IOrchestrator):
         max_iterations : int = _DEFAULT_MAX_ITERATIONS,
         policy_rules   : Optional[List] = None,
     ) -> None:
-        self._agents         : Dict[str, BaseAgent] = {a.name: a for a in agents}
+        self._agents         : Dict[str, BaseAgent] = {a.agent_name: a for a in agents}
         self._router         = router
         self._scheduler      = scheduler
         self._retry_manager  = retry_manager

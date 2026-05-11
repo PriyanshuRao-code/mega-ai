@@ -74,3 +74,6 @@ def create_app(
     app.include_router(router, prefix="/v1")
 
     return app
+
+# Instantiate the app for direct execution via Uvicorn (e.g., uvicorn api.app:app --reload)
+app = create_app()

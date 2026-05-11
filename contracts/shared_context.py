@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import threading
 import uuid
-from dataclasses import dataclass, field
+from pydantic import BaseModel, Field, PrivateAttr, model_validator, ConfigDict
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -50,17 +50,17 @@ class SharedContextValidationError(ValueError):
 # Supporting Types
 # ============================================================================
 
-@dataclass
-class Message:
+class Message(BaseModel):
     """
     Single conversational turn.
     """
 
     role: str
     content: str
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
-    def __post_init__(self) -> None:
+    @model_validator(mode='after')
+    def validate_model(self):
         allowed_roles = {"user", "assistant", "system"}
 
         if self.role not in allowed_roles:
@@ -75,8 +75,8 @@ class Message:
             )
 
 
-@dataclass
-class Document:
+        return self
+class Document(BaseModel):
     """
     Retrieved or injected document.
     """
@@ -84,11 +84,10 @@ class Document:
     doc_id: str
     source: str
     content: str
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
-@dataclass
-class AgentOutput:
+class AgentOutput(BaseModel):
     """
     Unified output container compatible with:
     - old tooling layer
@@ -127,17 +126,18 @@ class AgentOutput:
     # SHARED
     # ------------------------------------------------------------------
 
-    timestamp: datetime = field(
+    timestamp: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
     )
 
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
     # ------------------------------------------------------------------
     # Compatibility bridge
     # ------------------------------------------------------------------
 
-    def __post_init__(self) -> None:
+    @model_validator(mode='after')
+    def validate_model(self):
 
         # Tool → agent mapping
         if not self.agent_name and self.tool_name:
@@ -154,8 +154,8 @@ class AgentOutput:
             self.raw_data = self.output
 
 
-@dataclass
-class TokenUsage:
+        return self
+class TokenUsage(BaseModel):
     """
     Aggregated token accounting.
     """
@@ -170,15 +170,14 @@ class TokenUsage:
         self.total_tokens += prompt + completion
 
 
-@dataclass
-class ExecutionTraceEntry:
+class ExecutionTraceEntry(BaseModel):
     """
     Lightweight observability event.
     """
 
     source: str
     step: str
-    timestamp: datetime = field(
+    timestamp: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
     )
     duration_ms: Optional[float] = None
@@ -189,8 +188,8 @@ class ExecutionTraceEntry:
 # SharedContext
 # ============================================================================
 
-@dataclass
-class SharedContext:
+class SharedContext(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
     """
     Unified mutable runtime context shared across the entire pipeline.
 
@@ -213,11 +212,11 @@ class SharedContext:
 
     query: str = ""
 
-    run_id: str = field(
+    run_id: str = Field(
         default_factory=lambda: str(uuid.uuid4())
     )
 
-    created_at: datetime = field(
+    created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
     )
 
@@ -225,65 +224,58 @@ class SharedContext:
     # Conversation
     # ----------------------------------------------------------------------
 
-    conversation_history: List[Message] = field(default_factory=list)
+    conversation_history: List[Message] = Field(default_factory=list)
 
     # ----------------------------------------------------------------------
     # Retrieval
     # ----------------------------------------------------------------------
 
-    documents: List[Document] = field(default_factory=list)
+    documents: List[Document] = Field(default_factory=list)
 
     # ----------------------------------------------------------------------
     # Outputs
     # ----------------------------------------------------------------------
 
-    agent_outputs: Dict[str, AgentOutput] = field(default_factory=dict)
+    agent_outputs: Dict[str, AgentOutput] = Field(default_factory=dict)
 
-    tool_outputs: List[ToolOutput] = field(default_factory=list)
+    tool_outputs: List[AgentOutput] = Field(default_factory=list)
 
     # ----------------------------------------------------------------------
     # Metadata
     # ----------------------------------------------------------------------
 
-    citations: List[str] = field(default_factory=list)
+    citations: List[str] = Field(default_factory=list)
 
-    policy_violations: List[str] = field(default_factory=list)
+    policy_violations: List[str] = Field(default_factory=list)
 
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
     # ----------------------------------------------------------------------
     # Tokens
     # ----------------------------------------------------------------------
 
-    token_usage: TokenUsage = field(default_factory=TokenUsage)
+    token_usage: TokenUsage = Field(default_factory=TokenUsage)
 
     # ----------------------------------------------------------------------
     # Trace
     # ----------------------------------------------------------------------
 
-    execution_trace: List[ExecutionTraceEntry] = field(default_factory=list)
+    execution_trace: List[ExecutionTraceEntry] = Field(default_factory=list)
 
     # ----------------------------------------------------------------------
     # Internal KV Store
     # ----------------------------------------------------------------------
 
-    _kv_store: Dict[str, Any] = field(
-        default_factory=dict,
-        init=False,
-        repr=False,
-    )
+    _kv_store: Dict[str, Any] = PrivateAttr(default_factory=dict)
 
-    _lock: threading.RLock = field(
-        default_factory=threading.RLock,
-        init=False,
-        repr=False,
-    )
+    _lock: threading.RLock = PrivateAttr(default_factory=threading.RLock)
 
     # =========================================================================
     # Validation
     # =========================================================================
 
-    def __post_init__(self) -> None:
+    @model_validator(mode='after')
+    def validate_model(self):
 
         # --------------------------------------------------------------
         # TOOL-STYLE CONSTRUCTION
@@ -311,6 +303,7 @@ class SharedContext:
                 "SharedContext.query must not be blank."
             )
 
+        return self
     # =========================================================================
     # OLD TOOL API COMPATIBILITY
     # =========================================================================

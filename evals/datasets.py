@@ -1,12 +1,12 @@
 """
-IMPORTS: dataclasses, enum, typing
+IMPORTS: pydantic models, enum, typing
 INPUTS: None (for data generation methods)
 OUTPUTS: List[EvalCase], EvalResult definitions
 DEPENDENCIES: Standard library only
 EXCEPTIONS: ValueError (if case validation fails)
 """
 
-from dataclasses import dataclass, field
+from pydantic import BaseModel, Field
 from enum import Enum
 from typing import Dict, Any, List, Optional
 
@@ -15,27 +15,25 @@ class TestCategory(Enum):
     AMBIGUOUS = "ambiguous"
     ADVERSARIAL = "adversarial"
 
-@dataclass
-class EvalCase:
+class EvalCase(BaseModel):
     id: str
     category: TestCategory
     input_prompt: str
     expected_output: Dict[str, Any]
-    context: Optional[Dict[str, Any]] = field(default_factory=dict)
+    context: Optional[Dict[str, Any]] = Field(default_factory=dict)
     
     def __post_init__(self):
         if not self.id or not self.input_prompt:
             raise ValueError("EvalCase must have an id and input_prompt")
 
-@dataclass
-class EvalResult:
+class EvalResult(BaseModel):
     case_id: str
     scores: Dict[str, float]  # e.g. {"correctness": 0.9, ...}
     total_score: float
     agent_output: Dict[str, Any]
     passed: bool
 
-class DatasetLoader:
+class DatasetLoader(BaseModel):
     """Follows Single Responsibility Principle for loading non-adversarial data."""
     
     @staticmethod

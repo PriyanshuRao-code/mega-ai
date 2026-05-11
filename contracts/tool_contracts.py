@@ -5,7 +5,7 @@ contracts/tool_contracts.py
 ===========================
 Canonical request / response envelope for every tool.
 
-Imports   : dataclasses, enum, typing, uuid, datetime
+Imports   : pydantic models, enum, typing, uuid, datetime
 Inputs    : (constructed by callers)
 Outputs   : ToolRequest, ToolResponse, ToolStatus, SearchResult,
             ExecutionResult, SQLResult, ReflectionResult
@@ -16,7 +16,7 @@ Dependencies: stdlib only
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass, field
+from pydantic import BaseModel, Field
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
@@ -39,8 +39,7 @@ class ToolStatus(str, Enum):
 #  Request envelope
 # ──────────────────────────────────────────────
 
-@dataclass
-class ToolRequest:
+class ToolRequest(BaseModel):
     """
     Uniform input envelope for all tools.
 
@@ -55,29 +54,27 @@ class ToolRequest:
     """
     tool_name : str
     payload   : dict[str, Any]
-    request_id: str                  = field(default_factory=lambda: str(uuid.uuid4()))
-    timestamp : datetime             = field(default_factory=lambda: datetime.now(timezone.utc))
+    request_id: str                  = Field(default_factory=lambda: str(uuid.uuid4()))
+    timestamp : datetime             = Field(default_factory=lambda: datetime.now(timezone.utc))
     timeout   : float | None         = None
-    metadata  : dict[str, Any]       = field(default_factory=dict)
+    metadata  : dict[str, Any]       = Field(default_factory=dict)
 
 
 # ──────────────────────────────────────────────
 #  Typed result payloads
 # ──────────────────────────────────────────────
 
-@dataclass
-class SearchResult:
+class SearchResult(BaseModel):
     """Single web-search hit with relevance scoring."""
     title    : str
     url      : str
     snippet  : str
     score    : float          # 0.0 – 1.0
     rank     : int
-    metadata : dict[str, Any] = field(default_factory=dict)
+    metadata : dict[str, Any] = Field(default_factory=dict)
 
 
-@dataclass
-class ExecutionResult:
+class ExecutionResult(BaseModel):
     """Outcome of sandboxed Python execution."""
     stdout     : str
     stderr     : str
@@ -86,8 +83,7 @@ class ExecutionResult:
     exec_ms    : float = 0.0
 
 
-@dataclass
-class SQLResult:
+class SQLResult(BaseModel):
     """NL→SQL conversion + query execution result."""
     nl_query    : str
     generated_sql: str
@@ -97,8 +93,7 @@ class SQLResult:
     exec_ms     : float = 0.0
 
 
-@dataclass
-class ReflectionResult:
+class ReflectionResult(BaseModel):
     """Self-reflection analysis over previous outputs."""
     contradictions   : list[dict[str, Any]]
     summary          : str
@@ -110,8 +105,7 @@ class ReflectionResult:
 #  Response envelope
 # ──────────────────────────────────────────────
 
-@dataclass
-class ToolResponse:
+class ToolResponse(BaseModel):
     """
     Uniform output envelope returned by every tool.
 
@@ -133,7 +127,7 @@ class ToolResponse:
     error      : str | None          = None
     attempts   : int                 = 1
     duration_ms: float               = 0.0
-    timestamp  : datetime            = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp  : datetime            = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     # ── convenience constructors ──────────────────────────────────────── #
 

@@ -32,6 +32,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+if sys.stdout.encoding.lower() != 'utf-8':
+    sys.stdout.reconfigure(encoding='utf-8')
+
+
 # ── make project root importable ──────────────────────────────────────────── #
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -156,12 +160,15 @@ def _web_min_score_filter() -> None:
 
 
 def _web_wrong_payload_type() -> None:
+    from pydantic import ValidationError
     tool = WebSearchTool()
-    req  = ToolRequest(tool_name="web_search", payload="not a dict")  # type: ignore[arg-type]
-    resp = tool.run(req, _ctx())
+    try:
+        req  = ToolRequest(tool_name="web_search", payload="not a dict")  # type: ignore[arg-type]
+        resp = tool.run(req, _ctx())
+        _assert(False, "Expected ValidationError during model instantiation")
+    except ValidationError:
+        pass  # Success! Pydantic caught the invalid payload type
 
-    _assert(resp.status == ToolStatus.INVALID_INPUT,
-            f"Expected INVALID_INPUT for non-dict payload, got {resp.status}")
 
 
 def _web_relevance_sorted() -> None:

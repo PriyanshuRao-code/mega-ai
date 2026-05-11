@@ -57,7 +57,7 @@ class AgentTimeoutError(AgentError):
 # ---------------------------------------------------------------------------
 
 TInput = TypeVar("TInput")   # Always SharedContext in this system
-TOutput = TypeVar("TOutput") # One of the *Result dataclasses
+TOutput = TypeVar("TOutput") # One of the *Result pydantic models
 
 
 # ---------------------------------------------------------------------------

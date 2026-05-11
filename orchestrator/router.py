@@ -11,7 +11,7 @@ dependency readiness (delegated to IScheduler), and goal-alignment scoring.
 
 Imports
 -------
-    Standard : asyncio, logging, dataclasses, typing
+    Standard : asyncio, logging, pydantic models, typing
     Internal : contracts.models, interfaces.base, orchestrator.scheduler
 
 Input datatype  : SharedContext
@@ -46,7 +46,7 @@ if __name__ == "__main__":
 
 import asyncio
 import logging
-from dataclasses import dataclass, field
+from pydantic import BaseModel, Field
 from typing import Dict, List, Optional
 
 from contracts.models import (
@@ -64,8 +64,7 @@ logger = logging.getLogger("orchestrator.router")
 # Supporting value objects
 # ──────────────────────────────────────────────────────────────────────────────
 
-@dataclass
-class RoutingDecision:
+class RoutingDecision(BaseModel):
     """
     Value object capturing the full rationale behind a routing choice.
 
@@ -83,7 +82,7 @@ class RoutingDecision:
     scores          : Dict[str, float]
     reason          : str
     ambiguous       : bool              = False
-    ambiguous_agents: List[str]         = field(default_factory=list)
+    ambiguous_agents: List[str]         = Field(default_factory=list)
 
 
 # ──────────────────────────────────────────────────────────────────────────────

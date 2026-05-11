@@ -6,7 +6,7 @@ Immutable data contracts for the multi-agent orchestration system.
 
 DO NOT MODIFY — consumed by orchestrator layer and all agents.
 
-Imports  : dataclasses, datetime, typing, enum, uuid
+Imports  : pydantic, datetime, typing, enum, uuid
 Exports  : SharedContext, ToolResponse, AgentExecutionEvent, ExecutionEvent,
            EventType, ExecutionStatus, PolicyViolation
 Exceptions: (none raised here — pure data definitions)
@@ -15,10 +15,10 @@ Exceptions: (none raised here — pure data definitions)
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional
+from pydantic import BaseModel, Field
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -53,8 +53,7 @@ class ExecutionStatus(str, Enum):
 # Core contracts
 # ──────────────────────────────────────────────────────────────────────────────
 
-@dataclass
-class ToolResponse:
+class ToolResponse(BaseModel):
     """
     Result produced by a single agent execution.
 
@@ -72,21 +71,19 @@ class ToolResponse:
     tokens_used: int
     success    : bool
     error      : Optional[str]         = None
-    metadata   : Dict[str, Any]        = field(default_factory=dict)
+    metadata   : Dict[str, Any]        = Field(default_factory=dict)
 
 
-@dataclass
-class PolicyViolation:
+class PolicyViolation(BaseModel):
     """Structured record of a policy or safety breach detected during execution."""
     rule        : str
     severity    : str                  # "low" | "medium" | "high" | "critical"
     agent_name  : str
     description : str
-    timestamp   : datetime             = field(default_factory=datetime.utcnow)
+    timestamp   : datetime             = Field(default_factory=datetime.utcnow)
 
 
-@dataclass
-class AgentExecutionEvent:
+class AgentExecutionEvent(BaseModel):
     """
     Fine-grained event emitted at every state transition of an agent.
 
@@ -101,14 +98,13 @@ class AgentExecutionEvent:
     """
     event_type : EventType
     agent_name : str
-    timestamp  : datetime              = field(default_factory=datetime.utcnow)
-    metadata   : Dict[str, Any]        = field(default_factory=dict)
-    task_id    : str                   = field(default_factory=lambda: str(uuid.uuid4()))
-    event_id   : str                   = field(default_factory=lambda: str(uuid.uuid4()))
+    timestamp  : datetime              = Field(default_factory=datetime.utcnow)
+    metadata   : Dict[str, Any]        = Field(default_factory=dict)
+    task_id    : str                   = Field(default_factory=lambda: str(uuid.uuid4()))
+    event_id   : str                   = Field(default_factory=lambda: str(uuid.uuid4()))
 
 
-@dataclass
-class ExecutionEvent:
+class ExecutionEvent(BaseModel):
     """
     Top-level log record returned by the orchestrator after a full run.
 
@@ -120,21 +116,20 @@ class ExecutionEvent:
     policy_violations: Any policy breaches captured.
     total_tokens_used: Aggregate token consumption across all agents.
     started_at       : UTC start time.
-    finished_at      : UTC end time (None if still running).
+    finished_at      : Optional[datetime]
     error            : Top-level error message if the run failed.
     """
     task_id           : str
     status            : ExecutionStatus
-    agent_events      : List[AgentExecutionEvent]  = field(default_factory=list)
-    policy_violations : List[PolicyViolation]      = field(default_factory=list)
+    agent_events      : List[AgentExecutionEvent]  = Field(default_factory=list)
+    policy_violations : List[PolicyViolation]      = Field(default_factory=list)
     total_tokens_used : int                        = 0
-    started_at        : datetime                   = field(default_factory=datetime.utcnow)
+    started_at        : datetime                   = Field(default_factory=datetime.utcnow)
     finished_at       : Optional[datetime]         = None
     error             : Optional[str]              = None
 
 
-@dataclass
-class SharedContext:
+class SharedContext(BaseModel):
     """
     Mutable state shared across all agents within a single orchestration run.
 
@@ -155,16 +150,16 @@ class SharedContext:
     """
     task_id          : str
     goal             : str
-    messages         : List[Dict[str, str]]             = field(default_factory=list)
-    agent_outputs    : Dict[str, ToolResponse]          = field(default_factory=dict)
-    dependency_graph : Dict[str, List[str]]             = field(default_factory=dict)
-    agent_statuses   : Dict[str, ExecutionStatus]       = field(default_factory=dict)
+    messages         : List[Dict[str, str]]             = Field(default_factory=list)
+    agent_outputs    : Dict[str, ToolResponse]          = Field(default_factory=dict)
+    dependency_graph : Dict[str, List[str]]             = Field(default_factory=dict)
+    agent_statuses   : Dict[str, ExecutionStatus]       = Field(default_factory=dict)
     token_budget     : int                              = 100_000
     tokens_used      : int                              = 0
-    metadata         : Dict[str, Any]                  = field(default_factory=dict)
-    policy_flags     : List[PolicyViolation]            = field(default_factory=list)
-    available_agents : List[str]                        = field(default_factory=list)
-    completed_agents : List[str]                        = field(default_factory=list)
+    metadata         : Dict[str, Any]                   = Field(default_factory=dict)
+    policy_flags     : List[PolicyViolation]            = Field(default_factory=list)
+    available_agents : List[str]                        = Field(default_factory=list)
+    completed_agents : List[str]                        = Field(default_factory=list)
 
     # ── helpers ──────────────────────────────────────────────────────────────
 

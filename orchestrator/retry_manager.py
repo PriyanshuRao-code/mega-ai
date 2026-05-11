@@ -11,7 +11,7 @@ enforcement.  Emit structured AgentExecutionEvents for every attempt.
 
 Imports
 -------
-    Standard : asyncio, logging, dataclasses, random, time, typing
+    Standard : asyncio, logging, pydantic models, random, time, typing
     Internal : contracts.models, interfaces.base
 
 Input datatype  : BaseAgent, SharedContext, List[AgentExecutionEvent]
@@ -48,7 +48,7 @@ import asyncio
 import logging
 import random
 import time
-from dataclasses import dataclass, field
+from pydantic import BaseModel, Field
 from typing import List, Optional, Set, Type
 
 from contracts.models import (
@@ -68,8 +68,7 @@ logger = logging.getLogger("orchestrator.retry_manager")
 # Retry policy value object (Open for extension)
 # ──────────────────────────────────────────────────────────────────────────────
 
-@dataclass(frozen=True)
-class RetryPolicy:
+class RetryPolicy(BaseModel):
     """
     Immutable configuration for retry behaviour.
 
@@ -89,7 +88,7 @@ class RetryPolicy:
     backoff_multiplier: float            = 2.0
     jitter            : bool             = True
     timeout_s         : Optional[float]  = 30.0
-    non_retryable     : tuple            = field(
+    non_retryable     : tuple            = Field(
         default_factory=lambda: (ValueError, RuntimeError)
     )
 
@@ -155,10 +154,10 @@ class ExponentialRetryManager(IRetryManager):
 
         for attempt in range(1, policy.max_attempts + 1):
             self._emit(
-                event_sink, context, EventType.AGENT_STARTED, agent.name,
+                event_sink, context, EventType.AGENT_STARTED, agent.agent_name,
                 {"attempt": attempt, "max_attempts": policy.max_attempts},
             )
-            context.agent_statuses[agent.name] = ExecutionStatus.RUNNING
+            context.agent_statuses[agent.agent_name] = ExecutionStatus.RUNNING
             t0 = time.monotonic()
 
             try:
@@ -169,7 +168,7 @@ class ExponentialRetryManager(IRetryManager):
 
                 if last_response.success:
                     self._emit(
-                        event_sink, context, EventType.AGENT_COMPLETED, agent.name,
+                        event_sink, context, EventType.AGENT_COMPLETED, agent.agent_name,
                         {
                             "attempt"     : attempt,
                             "elapsed_s"   : round(elapsed, 3),
@@ -178,17 +177,17 @@ class ExponentialRetryManager(IRetryManager):
                     )
                     logger.info(
                         "Agent '%s' succeeded on attempt %d/%d (%.3fs).",
-                        agent.name, attempt, policy.max_attempts, elapsed,
+                        agent.agent_name, attempt, policy.max_attempts, elapsed,
                     )
                     return last_response
 
                 # Agent returned success=False — treat as soft failure
                 logger.warning(
                     "Agent '%s' returned failure on attempt %d/%d: %s",
-                    agent.name, attempt, policy.max_attempts, last_response.error,
+                    agent.agent_name, attempt, policy.max_attempts, last_response.error,
                 )
                 self._emit(
-                    event_sink, context, EventType.AGENT_FAILED, agent.name,
+                    event_sink, context, EventType.AGENT_FAILED, agent.agent_name,
                     {
                         "attempt"  : attempt,
                         "error"    : last_response.error,
@@ -200,35 +199,35 @@ class ExponentialRetryManager(IRetryManager):
                 elapsed = time.monotonic() - t0
                 logger.error(
                     "Agent '%s' TIMED OUT on attempt %d/%d after %.3fs.",
-                    agent.name, attempt, policy.max_attempts, elapsed,
+                    agent.agent_name, attempt, policy.max_attempts, elapsed,
                 )
                 self._emit(
-                    event_sink, context, EventType.AGENT_TIMEOUT, agent.name,
+                    event_sink, context, EventType.AGENT_TIMEOUT, agent.agent_name,
                     {"attempt": attempt, "timeout_s": policy.timeout_s},
                 )
                 last_exc      = exc
                 last_response = ToolResponse(
-                    agent_name=agent.name,
+                    agent_name=agent.agent_name,
                     output=None,
                     tokens_used=0,
                     success=False,
                     error=f"Timeout after {policy.timeout_s}s on attempt {attempt}.",
                 )
-                context.agent_statuses[agent.name] = ExecutionStatus.TIMEOUT
+                context.agent_statuses[agent.agent_name] = ExecutionStatus.TIMEOUT
 
             except tuple(policy.non_retryable) as exc:  # type: ignore[misc]
                 # Non-retryable: fail immediately
                 logger.error(
                     "Agent '%s' raised non-retryable %s: %s",
-                    agent.name, type(exc).__name__, exc,
+                    agent.agent_name, type(exc).__name__, exc,
                 )
                 self._emit(
-                    event_sink, context, EventType.AGENT_FAILED, agent.name,
+                    event_sink, context, EventType.AGENT_FAILED, agent.agent_name,
                     {"attempt": attempt, "error": str(exc), "non_retryable": True},
                 )
-                context.agent_statuses[agent.name] = ExecutionStatus.FAILED
+                context.agent_statuses[agent.agent_name] = ExecutionStatus.FAILED
                 return ToolResponse(
-                    agent_name=agent.name,
+                    agent_name=agent.agent_name,
                     output=None,
                     tokens_used=0,
                     success=False,
@@ -239,15 +238,15 @@ class ExponentialRetryManager(IRetryManager):
                 elapsed = time.monotonic() - t0
                 logger.warning(
                     "Agent '%s' raised %s on attempt %d/%d: %s",
-                    agent.name, type(exc).__name__, attempt, policy.max_attempts, exc,
+                    agent.agent_name, type(exc).__name__, attempt, policy.max_attempts, exc,
                 )
                 self._emit(
-                    event_sink, context, EventType.AGENT_FAILED, agent.name,
+                    event_sink, context, EventType.AGENT_FAILED, agent.agent_name,
                     {"attempt": attempt, "error": str(exc), "elapsed_s": round(elapsed, 3)},
                 )
                 last_exc = exc
                 last_response = ToolResponse(
-                    agent_name=agent.name,
+                    agent_name=agent.agent_name,
                     output=None,
                     tokens_used=0,
                     success=False,
@@ -259,19 +258,19 @@ class ExponentialRetryManager(IRetryManager):
                 delay = policy.delay_for_attempt(attempt)
                 logger.debug(
                     "Back-off %.3fs before retry %d for agent '%s'.",
-                    delay, attempt + 1, agent.name,
+                    delay, attempt + 1, agent.agent_name,
                 )
                 self._emit(
-                    event_sink, context, EventType.AGENT_RETRYING, agent.name,
+                    event_sink, context, EventType.AGENT_RETRYING, agent.agent_name,
                     {"next_attempt": attempt + 1, "delay_s": round(delay, 3)},
                 )
                 await asyncio.sleep(delay)
 
         # All attempts exhausted
-        context.agent_statuses[agent.name] = ExecutionStatus.FAILED
+        context.agent_statuses[agent.agent_name] = ExecutionStatus.FAILED
         logger.error(
             "Agent '%s' failed permanently after %d attempt(s).",
-            agent.name, policy.max_attempts,
+            agent.agent_name, policy.max_attempts,
         )
         assert last_response is not None  # always set in loop
         return last_response
