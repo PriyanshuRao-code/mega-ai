@@ -49,7 +49,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
-from contracts.orchestrator import (
+from contracts.models import (
     AgentExecutionEvent,
     EventType,
     ExecutionStatus,

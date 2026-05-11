@@ -19,13 +19,19 @@ VALIDATORS = {
 }
 
 def run_healthchecks():
+    print("========================================")
+    print(" HEALTHCHECK")
+    print("========================================")
     full_report = {}
     for key, (mod_name, func_name) in VALIDATORS.items():
+        print(f"Running validator: {key} ({mod_name}.py) ... ", end="", flush=True)
         try:
             mod = __import__(mod_name)
             func = getattr(mod, func_name)
             full_report[key] = func()
+            print("OK")
         except Exception as e:
+            print("FAILED")
             full_report[key] = {
                 "passed": False, 
                 "errors": [{"trace": traceback.format_exc(), "fix": f"Fix validator {mod_name}.py"}]

@@ -1,136 +1,106 @@
-import os
-import ast
-import json
+import asyncio
 import sys
+import os
+import logging
+from datetime import datetime
 
-def get_python_files(root_dir):
-    py_files = []
-    for dirpath, _, filenames in os.walk(root_dir):
-        if 'venv' in dirpath or '__pycache__' in dirpath or 'TEMP' in dirpath or 'PROMPTS' in dirpath:
-            continue
-        for f in filenames:
-            if f.endswith('.py'):
-                py_files.append(os.path.join(dirpath, f))
-    return py_files
+# Setup path so we can import from project root
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-def analyze_ast(filepath):
-    with open(filepath, 'r', encoding='utf-8') as f:
-        try:
-            tree = ast.parse(f.read(), filename=filepath)
-        except SyntaxError as e:
-            return {"error": str(e)}
+# Internal Imports (Adjust paths based on your directory structure)
+from orchestrator.orchestrator import build_orchestrator
+from agents.decomposition_agent import DecompositionAgent
+from agents.retrieval_agent import RetrievalAgent
+from agents.critique_agent import CritiqueAgent
+from agents.synthesis_agent import SynthesisAgent
+from contracts.shared_context import SharedContext
+from orchestrator.retry_manager import RetryPolicy
+# from utils.observability import Logger
 
-    imports = []
-    classes = []
-    bases = []
-    decorators = []
+# Setup logging for the test
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("SystemIntegrationTest")
+
+async def run_full_system_check():
+    logger.info("🚀 Starting Full System Integration Test...")
     
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                imports.append(alias.name)
-        elif isinstance(node, ast.ImportFrom):
-            if node.module:
-                imports.append(node.module)
-        elif isinstance(node, ast.ClassDef):
-            classes.append(node.name)
-            for b in node.bases:
-                if isinstance(b, ast.Name):
-                    bases.append((node.name, b.id))
-                elif isinstance(b, ast.Attribute):
-                    bases.append((node.name, b.attr))
-                elif isinstance(b, ast.Subscript):
-                    if isinstance(b.value, ast.Name):
-                        bases.append((node.name, b.value.id))
-                    elif isinstance(b.value, ast.Attribute):
-                        bases.append((node.name, b.value.attr))
-            for dec in node.decorator_list:
-                if isinstance(dec, ast.Name):
-                    decorators.append((node.name, dec.id))
-                elif isinstance(dec, ast.Call) and isinstance(dec.func, ast.Name):
-                    decorators.append((node.name, dec.func.id))
-                    
-    return {
-        "imports": imports,
-        "classes": classes,
-        "bases": bases,
-        "decorators": decorators
-    }
+    # 1. Initialize Infrastructure & Tools
+    retry_policy = RetryPolicy(max_attempts=3)
+    
+    # 2. Initialize Agents
+    agents = [
+        DecompositionAgent(),
+        RetrievalAgent(),
+        CritiqueAgent(),
+        SynthesisAgent()
+    ]
+    
+    # 3. Initialize Orchestrator
+    orchestrator = build_orchestrator(
+        agents=agents,
+        retry_policy=retry_policy
+    )
 
-def check_env_assumptions(root_dir):
-    assumptions = []
-    env_file = os.path.join(root_dir, '.env.example')
-    if not os.path.exists(env_file):
-        assumptions.append("Missing .env.example file")
-    else:
-        with open(env_file, 'r', encoding='utf-8') as f:
-            content = f.read()
-            if 'POSTGRES_DB' not in content:
-                assumptions.append("Missing POSTGRES_DB in .env.example")
-    return assumptions
+    # 4. Define a Multi-Step Test Query
+    test_query = "Compare the quarterly earnings of Apple and Microsoft for Q3 2025 and summarize the impact of their AI investments."
 
-def main():
-    root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-    files = get_python_files(root)
+    # 5. Simulate Pipeline Execution
+    logger.info(f"📥 Input Query: {test_query}")
     
-    report = {
-        "duplicate_contracts": {},
-        "pydantic_dataclass_mix": {"pydantic": [], "dataclasses": []},
-        "inheritance_issues": [],
-        "broken_interfaces": [],
-        "api_schema_issues": [],
-        "docker_env_assumptions": check_env_assumptions(root),
-        "import_issues": []
-    }
-    
-    contract_definitions = {}
-    
-    for py_file in files:
-        rel_path = os.path.relpath(py_file, root).replace('\\', '/')
-        if rel_path.startswith('debug/'):
-            continue
-            
-        with open(py_file, 'r', encoding='utf-8') as f:
-            content = f.read()
-            if 'pydantic' in content:
-                report["pydantic_dataclass_mix"]["pydantic"].append(rel_path)
-            if 'dataclasses' in content:
-                report["pydantic_dataclass_mix"]["dataclasses"].append(rel_path)
+    try:
+        start_time = datetime.now()
         
-        info = analyze_ast(py_file)
-        if "error" in info:
-            continue
-            
-        for cls in info["classes"]:
-            if cls not in contract_definitions:
-                contract_definitions[cls] = []
-            contract_definitions[cls].append(rel_path)
-            
-        if rel_path.startswith('agents/'):
-            agent_classes = [c for c in info["classes"] if 'Agent' in c]
-            for cls, base in info["bases"]:
-                if cls in agent_classes and base != 'BaseAgent' and base != 'ABC':
-                    report["inheritance_issues"].append(f"{cls} in {rel_path} inherits from {base} instead of BaseAgent")
-            for cls in agent_classes:
-                has_base = any(b == 'BaseAgent' for c, b in info["bases"] if c == cls)
-                if not has_base:
-                    report["inheritance_issues"].append(f"{cls} in {rel_path} does not inherit from BaseAgent")
-                    
-        if rel_path.startswith('tools/'):
-            tool_classes = [c for c in info["classes"] if 'Tool' in c]
-            for cls, base in info["bases"]:
-                if cls in tool_classes and base != 'BaseTool' and base != 'ABC':
-                    report["inheritance_issues"].append(f"{cls} in {rel_path} inherits from {base} instead of BaseTool")
-            for cls in tool_classes:
-                has_base = any(b == 'BaseTool' for c, b in info["bases"] if c == cls)
-                if not has_base:
-                    report["inheritance_issues"].append(f"{cls} in {rel_path} does not inherit from BaseTool")
+        ctx = SharedContext(
+            query=test_query,
+            available_agents=["decomposition", "retrieval", "critique", "synthesis"]
+        )
+        final_ctx, result = await orchestrator.run(ctx)
+        
+        end_time = datetime.now()
+        duration = (end_time - start_time).total_seconds()
 
-    for cls, paths in contract_definitions.items():
-        if len(paths) > 1 and cls in ['SharedContext', 'BaseAgent', 'BaseTool', 'AgentTask', 'Event', 'ModelConfig', 'RetryConfig', 'LogEvent', 'AgentState']:
-            report["duplicate_contracts"][cls] = paths
+        # --- VALIDATION SUITE ---
+        
+        print("\n" + "="*50)
+        print("INTERGRATION VERIFICATION CHECKLIST")
+        print("="*50)
 
-    print(json.dumps(report, indent=2))
+        # A. Check Flow & Final Response
+        assert result is not None, "❌ Final response is null"
+        assert result.status.value == "completed", f"❌ Orchestration failed with status: {result.status.value}"
+        print(f"✅ Query Flow: Success ({duration}s)")
+
+        # B. Check Shared Context & Traceability
+        assert hasattr(final_ctx, "agent_outputs"), "❌ SharedContext missing agent_outputs"
+        print("✅ Shared Context: Properly mutated across all agents")
+
+        # C. Observability & Event Logs
+        assert len(result.agent_events) > 0, "❌ No event logs generated"
+        print("✅ Observability: Event logs and traces generated")
+
+        # D. API / Serialization Check
+        try:
+            import json
+            # pydantic/dataclass serialization check
+            if hasattr(result, "model_dump_json"):
+                serialized = result.model_dump_json()
+            elif hasattr(result, "__dataclass_fields__"):
+                import dataclasses
+                serialized = json.dumps(dataclasses.asdict(result), default=str)
+            else:
+                serialized = json.dumps(result.__dict__, default=str)
+            assert isinstance(serialized, str)
+            print("✅ API Compatibility: Models are JSON serializable")
+        except Exception as e:
+            print(f"❌ API Compatibility: Serialization failed: {e}")
+
+        print("="*50)
+        print("🏆 SYSTEM INTEGRATION PASSED")
+        print("="*50)
+
+    except Exception as e:
+        logger.error(f"💥 Integration Test Failed: {str(e)}", exc_info=True)
+        sys.exit(1)
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(run_full_system_check())

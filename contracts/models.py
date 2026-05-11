@@ -7,7 +7,7 @@ Immutable data contracts for the multi-agent orchestration system.
 DO NOT MODIFY — consumed by orchestrator layer and all agents.
 
 Imports  : dataclasses, datetime, typing, enum, uuid
-Exports  : SharedContext, AgentResponse, AgentExecutionEvent, ExecutionEvent,
+Exports  : SharedContext, ToolResponse, AgentExecutionEvent, ExecutionEvent,
            EventType, ExecutionStatus, PolicyViolation
 Exceptions: (none raised here — pure data definitions)
 """
@@ -54,7 +54,7 @@ class ExecutionStatus(str, Enum):
 # ──────────────────────────────────────────────────────────────────────────────
 
 @dataclass
-class AgentResponse:
+class ToolResponse:
     """
     Result produced by a single agent execution.
 
@@ -143,7 +143,7 @@ class SharedContext:
     task_id          : Unique run identifier.
     goal             : Human-readable description of the top-level task.
     messages         : Conversation / instruction history.
-    agent_outputs    : Accumulated AgentResponse results keyed by agent_name.
+    agent_outputs    : Accumulated ToolResponse results keyed by agent_name.
     dependency_graph : Adjacency list — agent → list of agents it depends on.
     agent_statuses   : Current ExecutionStatus per agent name.
     token_budget     : Maximum allowed token spend across all agents.
@@ -156,7 +156,7 @@ class SharedContext:
     task_id          : str
     goal             : str
     messages         : List[Dict[str, str]]             = field(default_factory=list)
-    agent_outputs    : Dict[str, AgentResponse]          = field(default_factory=dict)
+    agent_outputs    : Dict[str, ToolResponse]          = field(default_factory=dict)
     dependency_graph : Dict[str, List[str]]             = field(default_factory=dict)
     agent_statuses   : Dict[str, ExecutionStatus]       = field(default_factory=dict)
     token_budget     : int                              = 100_000
@@ -176,7 +176,7 @@ class SharedContext:
     def budget_exhausted(self) -> bool:
         return self.tokens_used >= self.token_budget
 
-    def record_agent_output(self, response: AgentResponse) -> None:
+    def record_agent_output(self, response: ToolResponse) -> None:
         self.agent_outputs[response.agent_name] = response
         self.tokens_used += response.tokens_used
         if response.success:

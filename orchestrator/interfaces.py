@@ -16,11 +16,11 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import List, Optional
 
-from contracts.orchestrator import (
+from contracts.models import (
     AgentExecutionEvent,
     ExecutionEvent,
     SharedContext,
-    AgentResponse,
+    ToolResponse,
 )
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -121,16 +121,16 @@ class IRetryManager(ABC):
     - Emit AgentExecutionEvents for every retry attempt.
 
     Input  : BaseAgent, SharedContext, event sink
-    Output : AgentResponse (final outcome after all attempts)
+    Output : ToolResponse (final outcome after all attempts)
     """
 
     @abstractmethod
     async def execute_with_retry(
         self,
-        agent: "BaseAgent",
+        agent: BaseAgent,
         context: SharedContext,
         event_sink: List[AgentExecutionEvent],
-    ) -> AgentResponse:
+    ) -> ToolResponse:
         """
         Execute the agent, retrying on transient failures.
 
@@ -142,7 +142,7 @@ class IRetryManager(ABC):
 
         Returns
         -------
-        AgentResponse
+        ToolResponse
             Last result (success or final failure).
 
         Raises
