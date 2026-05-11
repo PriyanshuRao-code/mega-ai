@@ -1,0 +1,19 @@
+RAG (Retrieval-Augmented Generation) vs Fine-Tuning
+==================================================
+
+Overview:
+The debate between RAG and Fine-tuning is central to modern LLM application design. 
+
+RAG:
+- Pros: Access to real-time data, verifiable citations, no retraining cost.
+- Cons: High retrieval latency, dependent on retrieval quality (retrieval-precision bottleneck).
+- Use Case: Knowledge bases, dynamic documentation, multi-hop reasoning.
+
+Fine-Tuning:
+- Pros: Domain adaptation, behavior steering (style/tone), reduced prompt length.
+- Cons: Static knowledge (knowledge cut-off), expensive to update, "black box" reasoning.
+- Use Case: Specific jargon adoption, unique formatting requirements, offline tasks.
+
+Comparison:
+RAG is generally preferred for knowledge-intensive tasks, while Fine-tuning is superior for task-specific behavioral alignment.
+Many production systems now use a hybrid approach: a fine-tuned model optimized for RAG-driven context.

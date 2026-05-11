@@ -69,17 +69,17 @@ def _error_frame(run_id: str, message: str) -> str:
     return _serialise_event(error_event)
 
 
-def _done_frame(run_id: str) -> str:
+def _done_frame(run_id: str, data: dict | None = None) -> str:
     """
     Build the terminal DONE SSE frame.
 
-    Input : run_id (str)
+    Input : run_id (str), data (dict)
     Output: str
     """
     done_event = SSEEvent(
         event=SSEEventType.DONE,
         run_id=run_id,
-        data={},
+        data=data or {},
     )
     return _serialise_event(done_event)
 
@@ -113,16 +113,20 @@ async def event_generator(
     """
     logger.info("SSE stream started for run_id=%s", run_id)
     try:
+        final_data = {}
         async for sse_event in query_service.stream(request):
             # Respect client disconnects between yields
             if await http_request.is_disconnected():
                 logger.debug("Client disconnected; stopping SSE for run_id=%s", run_id)
                 return
 
-            yield _serialise_event(sse_event)
+            if sse_event.event == SSEEventType.DONE:
+                final_data = sse_event.data
+            else:
+                yield _serialise_event(sse_event)
             await asyncio.sleep(0)  # yield control to the event loop
 
-        yield _done_frame(run_id)
+        yield _done_frame(run_id, final_data)
         logger.info("SSE stream completed for run_id=%s", run_id)
 
     except asyncio.CancelledError:

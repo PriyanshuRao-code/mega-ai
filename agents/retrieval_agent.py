@@ -3,43 +3,13 @@ agents/retrieval_agent.py
 ==========================
 RetrievalAgent — performs multi-hop retrieval over SharedContext.documents,
 builds provenance maps, and tracks citations for every retrieved chunk.
+Supports local document ingestion from ./data/*.txt.
 
 SOLID Alignment:
   - (S) Responsible only for retrieval + provenance logic
   - (O) Override _score_chunk() / _expand_hop() to swap retrieval backends
   - (L) Safe to use wherever BaseAgent[SharedContext, RetrievalResult] is expected
   - (D) Depends on interfaces/contracts, not on other agents
-
-Imports (external):
-  stdlib  : logging, re, uuid, math
-  local   : interfaces.base_agent, contracts.shared_context,
-            contracts.agent_contracts
-
-Input:
-  SharedContext
-    .query               — driving retrieval query (required)
-    .documents           — corpus of Document objects to retrieve from
-    .metadata            — optional hints:
-                             'max_hops'        (int,   default 2)
-                             'top_k'           (int,   default 5)
-                             'min_score'       (float, default 0.1)
-
-Output:
-  RetrievalResult
-    .chunks         — all RetrievedChunk objects across all hops
-    .provenance_map — ProvenanceMap per retrieved chunk
-    .total_hops     — maximum hop depth reached
-    .metadata       — diagnostics (run_id, hops performed, chunk counts)
-
-Exceptions:
-  AgentValidationError  : query empty or context invalid
-  AgentExecutionError   : retrieval or provenance construction fails
-  ContractValidationError: output invariant violation (no chunks)
-
-Dependencies:
-  interfaces.base_agent.BaseAgent
-  contracts.shared_context.SharedContext, Document
-  contracts.agent_contracts.RetrievalResult, RetrievedChunk, ProvenanceMap
 """
 
 from __future__ import annotations
@@ -48,6 +18,7 @@ import logging
 import math
 import re
 import uuid
+import os
 from typing import Dict, List, Set, Tuple
 
 from interfaces.base_agent import BaseAgent, AgentExecutionError, AgentValidationError
@@ -121,13 +92,7 @@ def _extract_citations(doc: Document) -> List[Tuple[str, str]]:
 class RetrievalAgent(BaseAgent[SharedContext, RetrievalResult]):
     """
     Multi-hop retrieval agent with provenance mapping and citation tracking.
-
-    Hop 0: score all documents in context.documents against context.query.
-    Hop N: use top-k chunks from the previous hop as new query seeds to
-           retrieve additional supporting passages (bridge retrieval).
-
-    Override _score_chunk() to replace the heuristic scorer with a vector DB
-    or dense retrieval backend without touching any contract.
+    Supports local document ingestion from ./data/*.txt.
     """
 
     TIMEOUT_SECONDS = 45.0
@@ -152,27 +117,20 @@ class RetrievalAgent(BaseAgent[SharedContext, RetrievalResult]):
 
     def run(self, context: SharedContext) -> RetrievalResult:
         """
-        Execute multi-hop retrieval over context.documents.
-
-        Args:
-            context: SharedContext with .query and .documents
-
-        Returns:
-            RetrievalResult
-
-        Raises:
-            AgentExecutionError: if retrieval fails
+        Execute multi-hop retrieval over context.documents and local files.
         """
-        logger.info("Starting retrieval | run_id=%s docs=%d", context.run_id, len(context.documents))
+        logger.info("Starting retrieval | run_id=%s docs_in_context=%d", context.run_id, len(context.documents))
+
+        # 1. Ingest local documents from ./data if they exist
+        self._ingest_local_data(context)
 
         max_hops: int  = int(context.metadata.get("max_hops", 2))
         top_k:    int  = int(context.metadata.get("top_k", 5))
         min_score:float = float(context.metadata.get("min_score", 0.1))
 
-        # If no documents available, generate a placeholder so the contract
-        # is satisfied; real deployments should inject a retrieval backend.
+        # If no documents available after ingestion, generate a placeholder
         if not context.documents:
-            logger.warning("No documents in context; creating synthetic stub chunk")
+            logger.warning("No documents found in context or ./data; creating synthetic stub chunk")
             return self._stub_result(context)
 
         try:
@@ -206,29 +164,68 @@ class RetrievalAgent(BaseAgent[SharedContext, RetrievalResult]):
                 query_text = hop_chunks[0].content[:300]
                 hop_index += 1
 
+            # Guarantee at least one chunk
+            if not all_chunks:
+                return self._stub_result(context)
+
+            result = RetrievalResult(
+                chunks=all_chunks,
+                provenance_map=provenance,
+                total_hops=hop_index - 1,
+                metadata={
+                    "run_id":       context.run_id,
+                    "hops":         hop_index,
+                    "total_chunks": len(all_chunks),
+                    "top_k":        top_k,
+                    "docs_scanned": len(context.documents),
+                },
+            )
+            logger.info("Retrieval complete | chunks=%d hops=%d score_max=%.4f", 
+                        len(all_chunks), result.total_hops, all_chunks[0].score if all_chunks else 0)
+            context.store_agent_output(self.agent_name, result)
+            return result
+
         except AgentExecutionError:
             raise
         except Exception as exc:
             raise AgentExecutionError(self.agent_name, f"Retrieval failed: {exc}") from exc
 
-        # Guarantee at least one chunk
-        if not all_chunks:
-            return self._stub_result(context)
+    # ------------------------------------------------------------------ #
+    #  Local Ingestion                                                     #
+    # ------------------------------------------------------------------ #
 
-        result = RetrievalResult(
-            chunks=all_chunks,
-            provenance_map=provenance,
-            total_hops=hop_index - 1,
-            metadata={
-                "run_id":       context.run_id,
-                "hops":         hop_index,
-                "total_chunks": len(all_chunks),
-                "top_k":        top_k,
-            },
-        )
-        logger.info("Retrieval complete | chunks=%d hops=%d", len(all_chunks), result.total_hops)
-        context.store_agent_output(self.agent_name, result)
-        return result
+    def _ingest_local_data(self, context: SharedContext) -> None:
+        """
+        Scan ./data/*.txt and add content to context.documents if not present.
+        """
+        data_dir = "./data"
+        if not os.path.exists(data_dir):
+            return
+
+        loaded_count = 0
+        for filename in os.listdir(data_dir):
+            if filename.endswith(".txt"):
+                doc_id = f"local_{filename}"
+                # Avoid duplicate loading
+                if any(d.doc_id == doc_id for d in context.documents):
+                    continue
+                
+                try:
+                    path = os.path.join(data_dir, filename)
+                    with open(path, "r", encoding="utf-8") as f:
+                        content = f.read()
+                        context.add_document(
+                            doc_id=doc_id,
+                            source=path,
+                            content=content,
+                            metadata={"filename": filename}
+                        )
+                        loaded_count += 1
+                except Exception as exc:
+                    logger.error("Failed to load local file %s: %s", filename, exc)
+        
+        if loaded_count > 0:
+            logger.info("Ingested %d local documents from %s", loaded_count, data_dir)
 
     # ------------------------------------------------------------------ #
     #  Hop-level retrieval                                                 #
@@ -278,16 +275,7 @@ class RetrievalAgent(BaseAgent[SharedContext, RetrievalResult]):
 
     def _score_chunk(self, query: str, doc: Document) -> float:
         """
-        Score a document against the query.
-
-        Override this method to integrate a dense retrieval model / vector DB.
-
-        Args:
-            query: current query string
-            doc:   Document to score
-
-        Returns:
-            float in [0, 1]
+        Score a document against the query using cosine similarity.
         """
         return _cosine_similarity(_tokenize(query), _tokenize(doc.content))
 
@@ -359,33 +347,9 @@ if __name__ == "__main__":
         query="transformer attention mechanisms efficiency",
         metadata={"max_hops": 2, "top_k": 3, "min_score": 0.05},
     )
-    ctx.add_document(
-        doc_id="doc_001",
-        source="https://arxiv.org/abs/1706.03762",
-        content=(
-            "Attention is all you need. The transformer model uses "
-            "multi-head attention to efficiently process sequences. "
-            "See also [Vaswani et al.](https://arxiv.org/abs/1706.03762)."
-        ),
-    )
-    ctx.add_document(
-        doc_id="doc_002",
-        source="https://arxiv.org/abs/2004.05150",
-        content=(
-            "Efficient transformers: a survey. Various techniques such as "
-            "sparse attention and linear attention reduce quadratic complexity."
-        ),
-    )
-    ctx.add_document(
-        doc_id="doc_003",
-        source="https://arxiv.org/abs/2102.09680",
-        content=(
-            "FlashAttention: fast and memory-efficient exact attention. "
-            "IO-aware algorithm improves attention speed significantly."
-        ),
-    )
-
+    
     agent  = RetrievalAgent()
+    # This will load local files from ./data if they exist
     result = agent(ctx)
 
     print(f"\n--- Retrieved Chunks (total={len(result.chunks)}) ---")

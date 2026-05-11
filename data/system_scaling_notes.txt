@@ -1,0 +1,17 @@
+System Scaling Notes - Multi-Agent Architecture
+================================================
+
+Scalability Challenges:
+- Latency accumulation: Each agent hop adds wall-clock time.
+- Token budget management: Multi-agent conversations grow exponentially.
+- Consistency: Maintaining state (SharedContext) across distributed workers.
+
+Optimization Strategies:
+- Parallel scheduling: Execute independent agent branches concurrently.
+- Context Compression: Use specialized agents to summarize history.
+- Dynamic Routing: Skip unnecessary agents based on intermediate confidence scores.
+
+Horizontal Scaling:
+- Dockerized agents allow for scaling individual agent types independently.
+- Message queues (Redis/RabbitMQ) handle task distribution between orchestrator and workers.
+- Database sharding for session-level SharedContext persistence.

@@ -91,5 +91,29 @@ Agents have access to a suite of internal tools:
 - **Memory Consistency**: `SharedContext` uses a mix of Pydantic models and internal dictionary state; deep nested updates require careful synchronization.
 - **Stateless Workers**: The current worker implementation is a debug harness that exits after one run. A persistent task queue consumer is required for high-concurrency production use.
 
-## 🤖 AI Attestation
-This codebase was developed and stabilized with the assistance of **Antigravity**, an AI coding assistant. All architectural patterns (SOLID compliance, multi-agent orchestration) and infrastructure configurations were verified for production readiness by the AI.
+## AI Usage / Attestation
+AI-assisted development tools were used during architecture generation, debugging, and integration.
+
+Tools used:
+- Claude (Anthropic) — modular architecture scaffolding, contracts, agent/tool generation
+- ChatGPT — systems integration guidance, debugging workflows, orchestration stabilization
+- Google Antigravity IDE — debugging assistance and runtime issue analysis
+
+All generated code was manually reviewed, integrated, debugged, and adapted for compatibility. Significant engineering effort was spent on:
+- dependency consolidation
+- contract unification
+- Docker integration
+- runtime debugging
+- API wiring
+- orchestration validation
+- deployment reproducibility
+
+## Future Improvements
+
+- Real vector database integration
+- Persistent execution trace storage
+- LLM-backed routing policies
+- Tool sandbox hardening
+- Kubernetes deployment
+- Real retrieval corpora
+- Human-in-the-loop approval flows

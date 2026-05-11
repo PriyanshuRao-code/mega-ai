@@ -114,6 +114,20 @@ class QueryService(IQueryService):
             
             # Record Trace for later retrieval
             record_execution_result(execution_id, final_ctx, exec_event)
+
+            # Get final answer for the stream
+            synthesis_out = final_ctx.agent_outputs.get("SynthesisAgent")
+            answer_text = str(synthesis_out.output.merged_output) if synthesis_out and hasattr(synthesis_out.output, "merged_output") else str(synthesis_out.output) if synthesis_out else "No synthesis output"
+            
+            yield SSEEvent(
+                event=SSEEventType.DONE,
+                run_id=execution_id,
+                data={
+                    "answer": answer_text,
+                    "status": "completed",
+                    "agent_steps": len(final_ctx.agent_outputs)
+                }
+            )
             
         except Exception as e:
             logger.error(f"Streaming execution {execution_id}: Pipeline failed - {str(e)}", exc_info=True)
