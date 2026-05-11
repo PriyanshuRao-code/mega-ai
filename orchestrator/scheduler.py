@@ -48,13 +48,13 @@ import logging
 from collections import deque
 from typing import Dict, List, Optional, Set
 
-from contracts.models import (
+from contracts.orchestrator import (
     AgentExecutionEvent,
     EventType,
     ExecutionStatus,
     SharedContext,
 )
-from interfaces.base import IScheduler
+from orchestrator.interfaces import IScheduler
 
 logger = logging.getLogger("orchestrator.scheduler")
 

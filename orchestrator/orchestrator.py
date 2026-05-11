@@ -10,7 +10,7 @@ Coordinate the full lifecycle of a multi-agent run:
   2. Enter a scheduling loop: ask IRouter for the next agent.
   3. Gate execution through IScheduler (dependency readiness).
   4. Execute via IRetryManager (with back-off and timeout).
-  5. Accumulate ToolResponse results into SharedContext.
+  5. Accumulate AgentResponse results into SharedContext.
   6. Detect and log policy violations.
   7. Enforce the context token budget.
   8. Produce a complete ExecutionEvent log as output.
@@ -56,16 +56,17 @@ import uuid
 from datetime import datetime
 from typing import Dict, List, Optional
 
-from contracts.models import (
+from contracts.orchestrator import (
     AgentExecutionEvent,
     EventType,
     ExecutionEvent,
     ExecutionStatus,
     PolicyViolation,
     SharedContext,
-    ToolResponse,
+    AgentResponse,
 )
-from interfaces.base import BaseAgent, IOrchestrator, IRetryManager, IRouter, IScheduler
+from interfaces.base_agent import BaseAgent
+from orchestrator.interfaces import IOrchestrator, IRetryManager, IRouter, IScheduler
 from orchestrator.retry_manager import ExponentialRetryManager, RetryPolicy
 from orchestrator.router import DynamicRouter
 from orchestrator.scheduler import DependencyScheduler
@@ -88,7 +89,7 @@ class MultiAgentOrchestrator(IOrchestrator):
     scheduler       : IScheduler — dependency-graph readiness checks.
     retry_manager   : IRetryManager — wraps execution with retry/timeout.
     max_iterations  : Hard loop-guard to prevent infinite cycles (default 1000).
-    policy_rules    : Callable list for custom policy checks per ToolResponse.
+    policy_rules    : Callable list for custom policy checks per AgentResponse.
     """
 
     _DEFAULT_MAX_ITERATIONS = 1_000
@@ -178,24 +179,38 @@ class MultiAgentOrchestrator(IOrchestrator):
                     continue
 
                 # ── pre-flight validation ─────────────────────────────────────
-                if not await agent.validate(context):
+
+                try:
+                    if hasattr(agent, "validate_input"):
+                        agent.validate_input(context)
+
+                except Exception as exc:
                     logger.warning(
-                        "[%s] Agent '%s' failed pre-flight validation. Skipping.",
-                        run_id, next_agent_name,
+                        "[%s] Agent '%s' failed pre-flight validation: %s",
+                        run_id,
+                        next_agent_name,
+                        exc,
                     )
+
                     context.agent_statuses[next_agent_name] = ExecutionStatus.SKIPPED
+
                     self._append_event(
-                        event_sink, context, EventType.AGENT_FAILED,
-                        next_agent_name, {"reason": "pre-flight validation failed"},
+                        event_sink,
+                        context,
+                        EventType.AGENT_FAILED,
+                        next_agent_name,
+                        {"reason": f"pre-flight validation failed: {exc}"},
                     )
+
                     continue
+
 
                 # ── execution ─────────────────────────────────────────────────
                 logger.info(
                     "[%s] Executing agent '%s' (iteration %d).",
                     run_id, next_agent_name, iterations,
                 )
-                response: ToolResponse = await self._retry_manager.execute_with_retry(
+                response: AgentResponse = await self._retry_manager.execute_with_retry(
                     agent, context, event_sink
                 )
 
@@ -286,7 +301,7 @@ class MultiAgentOrchestrator(IOrchestrator):
 
     async def _post_agent_hook(
         self,
-        response   : ToolResponse,
+        response   : AgentResponse,
         context    : SharedContext,
         event_sink : List[AgentExecutionEvent],
     ) -> None:
@@ -324,13 +339,13 @@ class MultiAgentOrchestrator(IOrchestrator):
 
     def _run_policy_checks(
         self,
-        response: ToolResponse,
+        response: AgentResponse,
         context : SharedContext,
     ) -> List[PolicyViolation]:
         """
         Apply every registered policy rule to the response.
 
-        Input  : ToolResponse, SharedContext
+        Input  : AgentResponse, SharedContext
         Output : List[PolicyViolation]
         """
         violations: List[PolicyViolation] = []
@@ -378,7 +393,7 @@ def build_orchestrator(
     -----
     agents        : List[BaseAgent]  — agents to register.
     retry_policy  : RetryPolicy      — retry/timeout configuration.
-    policy_rules  : list of callables(ToolResponse, SharedContext) → Optional[PolicyViolation]
+    policy_rules  : list of callables(AgentResponse, SharedContext) → Optional[PolicyViolation]
     max_iterations: int              — loop guard.
 
     Output
@@ -408,7 +423,7 @@ if __name__ == "__main__":
     import sys
     import os
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from contracts.models import ExecutionStatus, SharedContext, ToolResponse
+    from contracts.models import ExecutionStatus, SharedContext, AgentResponse
     from interfaces.base import BaseAgent
 
     logging.basicConfig(
@@ -423,9 +438,9 @@ if __name__ == "__main__":
         def name(self)       -> str: return "fetcher"
         @property
         def max_tokens(self) -> int: return 1_000
-        async def execute(self, context: SharedContext) -> ToolResponse:
+        async def execute(self, context: SharedContext) -> AgentResponse:
             await asyncio.sleep(0.01)
-            return ToolResponse(agent_name=self.name, output={"data": [1, 2, 3]},
+            return AgentResponse(agent_name=self.name, output={"data": [1, 2, 3]},
                                 tokens_used=150, success=True)
 
     class AnalyserAgent(BaseAgent):
@@ -433,11 +448,11 @@ if __name__ == "__main__":
         def name(self)       -> str: return "analyser"
         @property
         def max_tokens(self) -> int: return 2_000
-        async def execute(self, context: SharedContext) -> ToolResponse:
+        async def execute(self, context: SharedContext) -> AgentResponse:
             fetcher_out = context.agent_outputs.get("fetcher")
             data = fetcher_out.output["data"] if fetcher_out else []
             await asyncio.sleep(0.01)
-            return ToolResponse(agent_name=self.name,
+            return AgentResponse(agent_name=self.name,
                                 output={"sum": sum(data), "count": len(data)},
                                 tokens_used=300, success=True)
 
@@ -446,11 +461,11 @@ if __name__ == "__main__":
         def name(self)       -> str: return "reporter"
         @property
         def max_tokens(self) -> int: return 500
-        async def execute(self, context: SharedContext) -> ToolResponse:
+        async def execute(self, context: SharedContext) -> AgentResponse:
             analysis = context.agent_outputs.get("analyser")
             summary  = analysis.output if analysis else {}
             await asyncio.sleep(0.01)
-            return ToolResponse(agent_name=self.name,
+            return AgentResponse(agent_name=self.name,
                                 output=f"Report: {summary}",
                                 tokens_used=80, success=True)
 

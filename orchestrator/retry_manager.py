@@ -15,7 +15,7 @@ Imports
     Internal : contracts.models, interfaces.base
 
 Input datatype  : BaseAgent, SharedContext, List[AgentExecutionEvent]
-Output datatype : ToolResponse  (final result — success or terminal failure)
+Output datatype : AgentResponse  (final result — success or terminal failure)
 
 Possible exceptions
 -------------------
@@ -25,7 +25,7 @@ Possible exceptions
 
 Dependencies
 ------------
-    contracts.models.{ToolResponse, AgentExecutionEvent, EventType, SharedContext}
+    contracts.models.{AgentResponse, AgentExecutionEvent, EventType, SharedContext}
     interfaces.base.{IRetryManager, BaseAgent}
 
 SOLID notes
@@ -33,7 +33,7 @@ SOLID notes
     S — retry / backoff logic only; does not route or schedule.
     O — RetryPolicy is a separate injectable dataclass; swap it to change
         back-off strategy without touching RetryManager.
-    L — fulfils IRetryManager; ToolResponse semantics are preserved.
+    L — fulfils IRetryManager; AgentResponse semantics are preserved.
     I — depends only on BaseAgent and SharedContext abstractions.
     D — injects RetryPolicy; no internal construction of policy.
 """
@@ -51,14 +51,15 @@ import time
 from dataclasses import dataclass, field
 from typing import List, Optional, Set, Type
 
-from contracts.models import (
+from contracts.orchestrator import (
     AgentExecutionEvent,
     EventType,
     ExecutionStatus,
     SharedContext,
-    ToolResponse,
+    AgentResponse,
 )
-from interfaces.base import BaseAgent, IRetryManager
+from interfaces.base_agent import BaseAgent
+from orchestrator.interfaces import IRetryManager
 
 logger = logging.getLogger("orchestrator.retry_manager")
 
@@ -129,7 +130,7 @@ class ExponentialRetryManager(IRetryManager):
         agent       : BaseAgent,
         context     : SharedContext,
         event_sink  : List[AgentExecutionEvent],
-    ) -> ToolResponse:
+    ) -> AgentResponse:
         """
         Execute agent with retries, back-off, and timeout per attempt.
 
@@ -141,7 +142,7 @@ class ExponentialRetryManager(IRetryManager):
 
         Output
         ------
-        ToolResponse — the final result (may be a failure after all retries).
+        AgentResponse — the final result (may be a failure after all retries).
 
         Raises
         ------
@@ -149,7 +150,7 @@ class ExponentialRetryManager(IRetryManager):
         asyncio.TimeoutError — if every attempt times out.
         """
         policy        = self._policy
-        last_response : Optional[ToolResponse] = None
+        last_response : Optional[AgentResponse] = None
         last_exc      : Optional[Exception]    = None
 
         for attempt in range(1, policy.max_attempts + 1):
@@ -206,7 +207,7 @@ class ExponentialRetryManager(IRetryManager):
                     {"attempt": attempt, "timeout_s": policy.timeout_s},
                 )
                 last_exc      = exc
-                last_response = ToolResponse(
+                last_response = AgentResponse(
                     agent_name=agent.name,
                     output=None,
                     tokens_used=0,
@@ -226,7 +227,7 @@ class ExponentialRetryManager(IRetryManager):
                     {"attempt": attempt, "error": str(exc), "non_retryable": True},
                 )
                 context.agent_statuses[agent.name] = ExecutionStatus.FAILED
-                return ToolResponse(
+                return AgentResponse(
                     agent_name=agent.name,
                     output=None,
                     tokens_used=0,
@@ -245,7 +246,7 @@ class ExponentialRetryManager(IRetryManager):
                     {"attempt": attempt, "error": str(exc), "elapsed_s": round(elapsed, 3)},
                 )
                 last_exc = exc
-                last_response = ToolResponse(
+                last_response = AgentResponse(
                     agent_name=agent.name,
                     output=None,
                     tokens_used=0,
@@ -282,20 +283,18 @@ class ExponentialRetryManager(IRetryManager):
         agent    : BaseAgent,
         context  : SharedContext,
         timeout_s: Optional[float],
-    ) -> ToolResponse:
+    ) -> AgentResponse:
         """
         Execute agent.execute() with an optional asyncio timeout.
 
         Input  : BaseAgent, SharedContext, Optional[float]
-        Output : ToolResponse
+        Output : AgentResponse
 
         Raises
         ------
         asyncio.TimeoutError — if execution exceeds timeout_s.
         """
-        if timeout_s is None:
-            return await agent.execute(context)
-        return await asyncio.wait_for(agent.execute(context), timeout=timeout_s)
+        return await asyncio.wait_for( asyncio.to_thread(agent, context), timeout=timeout_s, )
 
     @staticmethod
     def _emit(
@@ -326,7 +325,7 @@ if __name__ == "__main__":
     import sys
     import os
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from contracts.models import ExecutionStatus, SharedContext, ToolResponse
+    from contracts.models import ExecutionStatus, SharedContext, AgentResponse
     from interfaces.base import BaseAgent
 
     logging.basicConfig(
@@ -341,8 +340,8 @@ if __name__ == "__main__":
         def name(self) -> str: return "always_ok"
         @property
         def max_tokens(self) -> int: return 500
-        async def execute(self, context: SharedContext) -> ToolResponse:
-            return ToolResponse(agent_name=self.name, output="ok",
+        async def execute(self, context: SharedContext) -> AgentResponse:
+            return AgentResponse(agent_name=self.name, output="ok",
                                 tokens_used=10, success=True)
 
     class FailsTwiceThenSucceedsAgent(BaseAgent):
@@ -351,13 +350,13 @@ if __name__ == "__main__":
         def name(self) -> str: return "flaky_agent"
         @property
         def max_tokens(self) -> int: return 500
-        async def execute(self, context: SharedContext) -> ToolResponse:
+        async def execute(self, context: SharedContext) -> AgentResponse:
             self._calls += 1
             if self._calls < 3:
-                return ToolResponse(agent_name=self.name, output=None,
+                return AgentResponse(agent_name=self.name, output=None,
                                     tokens_used=5, success=False,
                                     error=f"Transient failure #{self._calls}")
-            return ToolResponse(agent_name=self.name, output="recovered",
+            return AgentResponse(agent_name=self.name, output="recovered",
                                 tokens_used=20, success=True)
 
     class AlwaysTimesOutAgent(BaseAgent):
@@ -365,9 +364,9 @@ if __name__ == "__main__":
         def name(self) -> str: return "timeout_agent"
         @property
         def max_tokens(self) -> int: return 500
-        async def execute(self, context: SharedContext) -> ToolResponse:
+        async def execute(self, context: SharedContext) -> AgentResponse:
             await asyncio.sleep(99)   # will always be killed by timeout
-            return ToolResponse(agent_name=self.name, output=None,
+            return AgentResponse(agent_name=self.name, output=None,
                                 tokens_used=0, success=False, error="unreachable")
 
     class NonRetryableAgent(BaseAgent):
@@ -375,7 +374,7 @@ if __name__ == "__main__":
         def name(self) -> str: return "nr_agent"
         @property
         def max_tokens(self) -> int: return 500
-        async def execute(self, context: SharedContext) -> ToolResponse:
+        async def execute(self, context: SharedContext) -> AgentResponse:
             raise ValueError("Policy violation — stop immediately")
 
     async def _debug() -> None:

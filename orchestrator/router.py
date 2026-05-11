@@ -49,13 +49,13 @@ import logging
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
-from contracts.models import (
+from contracts.orchestrator import (
     AgentExecutionEvent,
     EventType,
     ExecutionStatus,
     SharedContext,
 )
-from interfaces.base import IRouter, IScheduler
+from orchestrator.interfaces import IRouter, IScheduler
 
 logger = logging.getLogger("orchestrator.router")
 

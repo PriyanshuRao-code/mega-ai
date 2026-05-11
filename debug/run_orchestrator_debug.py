@@ -42,13 +42,13 @@ from typing import List, Optional
 # ── path setup (run from repo root or debug/) ─────────────────────────────────
 sys.path.insert(0, __file__.rsplit("/debug", 1)[0])   # repo root
 
-from contracts.models import (
+from contracts.orchestrator import (
     ExecutionStatus,
     PolicyViolation,
     SharedContext,
-    ToolResponse,
+    AgentResponse,
 )
-from interfaces.base import BaseAgent
+from interfaces.base_agent import BaseAgent
 from orchestrator.orchestrator import build_orchestrator
 from orchestrator.retry_manager import RetryPolicy
 
@@ -76,7 +76,7 @@ class SimpleAgent(BaseAgent):
     tokens_cost    : int — tokens reported consumed per call.
     fail_times     : int — how many times to return success=False before succeeding.
     sleep_s        : float — simulated latency per call.
-    output_payload : any — value placed in ToolResponse.output on success.
+    output_payload : any — value placed in AgentResponse.output on success.
     """
 
     def __init__(
@@ -99,18 +99,17 @@ class SimpleAgent(BaseAgent):
     @property
     def max_tokens(self) -> int:  return 2_000
 
-    async def execute(self, context: SharedContext) -> ToolResponse:
-        await asyncio.sleep(self._sleep)
+    def run(self, context: SharedContext) -> AgentResponse:
         self._calls += 1
         if self._calls <= self._fails:
-            return ToolResponse(
+            return AgentResponse(
                 agent_name=self.name,
                 output=None,
                 tokens_used=10,
                 success=False,
                 error=f"Simulated failure #{self._calls}",
             )
-        return ToolResponse(
+        return AgentResponse(
             agent_name=self.name,
             output=self._payload,
             tokens_used=self._cost,
@@ -330,8 +329,8 @@ async def scenario_policy_violation() -> bool:
         def name(self) -> str: return "reporter"
         @property
         def max_tokens(self) -> int: return 500
-        async def execute(self, context: SharedContext) -> ToolResponse:
-            return ToolResponse(
+        def run(self, context: SharedContext) -> AgentResponse:
+            return AgentResponse(
                 agent_name=self.name,
                 output="RESTRICTED: classified content detected",
                 tokens_used=50,
@@ -339,7 +338,7 @@ async def scenario_policy_violation() -> bool:
             )
 
     def forbidden_keyword_rule(
-        response: ToolResponse, context: SharedContext
+        response: AgentResponse, context: SharedContext
     ) -> Optional[PolicyViolation]:
         if isinstance(response.output, str) and "RESTRICTED" in response.output:
             return PolicyViolation(
