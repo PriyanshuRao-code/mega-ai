@@ -52,3 +52,6 @@ def test_api_stream():
                 print(f"      Out: {step['output_summary'][:150]}...")
         else:
             print(f"Failed to fetch trace: {trace_resp.status_code}")
+
+if __name__ == "__main__":
+    test_api_stream()

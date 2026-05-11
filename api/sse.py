@@ -114,7 +114,7 @@ async def event_generator(
     logger.info("SSE stream started for run_id=%s", run_id)
     try:
         final_data = {}
-        async for sse_event in query_service.stream(request):
+        async for sse_event in query_service.stream(request, run_id=run_id):
             # Respect client disconnects between yields
             if await http_request.is_disconnected():
                 logger.debug("Client disconnected; stopping SSE for run_id=%s", run_id)

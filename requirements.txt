@@ -27,3 +27,4 @@ arq==0.26.1
 # Utilities
 tenacity==9.0.0        # retry logic for DB / API calls
 python-dotenv==1.0.1
+openai==1.54.4

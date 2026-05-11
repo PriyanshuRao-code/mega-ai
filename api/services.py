@@ -63,7 +63,7 @@ class IQueryService(ABC):
         """
 
     @abstractmethod
-    async def stream(self, request: QueryRequest) -> AsyncIterator[SSEEvent]:
+    async def stream(self, request: QueryRequest, run_id: str | None = None) -> AsyncIterator[SSEEvent]:
         """
         Input : QueryRequest
         Output: async generator of SSEEvent

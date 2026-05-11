@@ -49,8 +49,15 @@ Dependencies:
 
 from __future__ import annotations
 
+import os as _os
+import sys as _sys
+# Add project root to path for standalone execution
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+
 import logging
 import re
+from openai import OpenAI
+import os
 import uuid
 from typing import Dict, List, Optional, Tuple
 
@@ -252,7 +259,8 @@ class SynthesisAgent(BaseAgent[SharedContext, SynthesisResult]):
                     passages.append(cs.claim_text)
                     sources.extend(cs.sources)
 
-        if not passages and retrieval and retrieval.chunks:
+        # Fix: Always include retrieval chunks, even if we have critique insights
+        if retrieval and retrieval.chunks:
             for chunk in sorted(retrieval.chunks, key=lambda c: c.score, reverse=True):
                 passages.append(chunk.content)
                 sources.append(chunk.source)
@@ -311,24 +319,67 @@ class SynthesisAgent(BaseAgent[SharedContext, SynthesisResult]):
     ) -> str:
         """
         Build the final merged output string.
-
-        Override to integrate an LLM summarizer.
-
-        Args:
-            query    : original user query
-            passages : ordered list of content passages to merge
-            resolved : contradiction resolutions already applied
-            critique : full CritiqueResult (may be None)
-
-        Returns:
-            Non-empty merged output string
+        Supports standard OpenAI and GitHub Models (Azure AI Inference).
         """
+        api_key = os.environ.get("OPENAI_API_KEY")
+        model_name = os.environ.get("LLM_MODEL", "gpt-4o")
+        
+        if api_key:
+            try:
+                from openai import OpenAI
+                
+                # Dynamic base_url switching:
+                # If using GitHub Token (starts with github_pat_), use the GitHub Inference endpoint.
+                # Otherwise, use the default OpenAI endpoint.
+                if api_key.startswith("github_pat_"):
+                    base_url = "https://models.inference.ai.azure.com"
+                else:
+                    base_url = None
+
+                client = OpenAI(api_key=api_key, base_url=base_url)
+                
+                # Construct a professional synthesis prompt
+                context_block = "\n\n".join([f"--- SOURCE {i+1} ---\n{p}" for i, p in enumerate(passages)])
+                contradiction_block = ""
+                if resolved:
+                    contradiction_block = "\n\nResolved Contradictions:\n" + "\n".join(
+                        [f"- {r.contradiction_id}: {r.rationale}" for r in resolved]
+                    )
+
+                system_prompt = (
+                    "You are a Synthesis Agent in a multi-agent orchestration pipeline. "
+                    "Your goal is to produce a single, coherent, and factually accurate response "
+                    "based on the provided context passages. Use a professional tone."
+                )
+                
+                user_content = (
+                    f"Query: {query}\n\n"
+                    f"Context Passages:\n{context_block}\n"
+                    f"{contradiction_block}\n\n"
+                    "Please synthesize the above information into a final answer. "
+                    "Include citations to the source numbers (e.g., [Source 1]) if possible."
+                )
+
+                completion = client.chat.completions.create(
+                    model=model_name,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_content}
+                    ],
+                    temperature=0.3,
+                    max_tokens=1000
+                )
+                return completion.choices[0].message.content or "Empty response from LLM"
+            
+            except Exception as exc:
+                logger.error("LLM synthesis failed, falling back to heuristic: %s", exc)
+
+        # --- Fallback Heuristic Strategy ---
         lines: List[str] = []
         lines.append(f"Query: {query}\n")
-        lines.append("Synthesized Answer:")
+        lines.append("Synthesized Answer (Heuristic Fallback):")
         lines.append("-" * 40)
 
-        # De-duplicate and truncate long passages
         seen: set = set()
         for passage in passages:
             key = passage[:120]
@@ -374,6 +425,10 @@ def _resolve_confidence(a: ClaimScore, b: ClaimScore, cid: str) -> ResolvedContr
 
 if __name__ == "__main__":
     import json, sys
+    from dotenv import load_dotenv
+    # Load environment variables from .env file for local debugging
+    load_dotenv()
+    
     logging.basicConfig(
         level=logging.DEBUG,
         format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",

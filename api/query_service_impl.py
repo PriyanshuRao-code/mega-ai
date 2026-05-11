@@ -61,11 +61,11 @@ class QueryService(IQueryService):
             logger.error(f"Execution {execution_id}: Pipeline failed - {str(e)}", exc_info=True)
             # Re-raise so FastAPI's error handlers (api/error_handlers.py) can format the 500
             raise e
-    async def stream(self, request: QueryRequest):
+    async def stream(self, request: QueryRequest, run_id: str | None = None):
         import asyncio
         from api.models import SSEEvent, SSEEventType
         
-        execution_id = str(uuid.uuid4())
+        execution_id = run_id or str(uuid.uuid4())
         q = asyncio.Queue()
         
         context = SharedContext(

@@ -15,7 +15,9 @@ Exceptions  : None raised by the factory itself.
 
 from __future__ import annotations
 
+import logging
 from typing import Callable
+from dotenv import load_dotenv
 
 from fastapi import FastAPI
 
@@ -47,6 +49,7 @@ def create_app(
     Output:
       Configured FastAPI instance.
     """
+    load_dotenv()
     app = FastAPI(
         title=title,
         version=version,

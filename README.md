@@ -52,6 +52,32 @@ Ensure you have Docker and Docker Compose installed.
     - API: `http://localhost:8000/health`
     - Logs: accessible via Fluentd or `docker compose logs -f`
 
+## 🧠 LLM Provider Support
+The system dynamically supports multiple LLM providers based on your `OPENAI_API_KEY` prefix:
+
+| Provider | Key Type | Auto-Detected Endpoint |
+| :--- | :--- | :--- |
+| **OpenAI** | `sk-...` | Standard OpenAI API |
+| **GitHub Models** | `github_pat_...` | GitHub AI Inference (`models.inference.ai.azure.com`) |
+
+### Configuration (`.env`)
+- **`OPENAI_API_KEY`**: Your secret key or GitHub Personal Access Token.
+- **`LLM_MODEL`**: The model name to use (e.g., `gpt-4o`, `gpt-5`, `meta-llama-3.1-405b-instruct`). Default is `gpt-4o`.
+
+## 📸 Visual Overview
+
+### 🔍 Query Interface
+Explore the seamless multi-agent orchestration in action.
+| Main Chat View | Multi-Agent Thought Process |
+| :--- | :--- |
+| ![Query Interface 1](./assets/query_main.png) | ![Query Interface 2](./assets/query_agents.png) |
+
+### 🛤️ Trace Audit Trail
+Deep-dive into the performance and data flow of every run.
+| Execution Timeline | Agent Node Graph |
+| :--- | :--- |
+| ![Trace View 1](./assets/trace_timeline.png) | ![Trace View 2](./assets/trace_graph.png) |
+
 ## 📡 Endpoints
 The system exposes the following RESTful endpoints:
 

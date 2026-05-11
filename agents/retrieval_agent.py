@@ -14,6 +14,11 @@ SOLID Alignment:
 
 from __future__ import annotations
 
+import os as _os
+import sys as _sys
+# Add project root to path for standalone execution
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+
 import logging
 import math
 import re
@@ -198,7 +203,10 @@ class RetrievalAgent(BaseAgent[SharedContext, RetrievalResult]):
         """
         Scan ./data/*.txt and add content to context.documents if not present.
         """
-        data_dir = "./data"
+        # Fix: Use absolute path relative to project root
+        root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        data_dir = os.path.join(root_dir, "data")
+        
         if not os.path.exists(data_dir):
             return
 

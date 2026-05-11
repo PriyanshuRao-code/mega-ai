@@ -142,11 +142,7 @@ services:
 
     image: ${COMPOSE_PROJECT_NAME:-mas}/worker:${IMAGE_TAG:-latest}
     container_name: ${COMPOSE_PROJECT_NAME:-mas}_worker
-
-    # IMPORTANT:
-    # Prevent Docker from restarting the worker
-    # after the test script exits successfully.
-    restart: "no"
+    restart: unless-stopped
 
     environment:
       <<: *common-env
